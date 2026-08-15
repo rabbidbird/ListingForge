@@ -1,26 +1,31 @@
-# ListingForge (v0.1 — Self-Hosted Alpha)
+# TrueDraft (v0.2)
 
-**Fact-locked draft generator for product listings.**
+**Fact-locked draft generator for product listings — with accounts, plans, and Stripe-ready billing.**
 
-This is a **self-hosted / single-user alpha**, not a production multi-tenant SaaS.
+TrueDraft helps sellers create **draft** titles, descriptions, and tags from the facts they supply.  
+It does **not** invent materials, ratings, shipping claims, or other product attributes.
 
-It helps sellers draft titles, descriptions, and tags for Etsy, Shopify, and similar platforms.  
-All output is a **draft that requires human verification** before publishing.
+## Status
 
-## What it does
+Closer to paid launch than v0.1, but still requires:
 
-- Generates draft titles, descriptions, and tags from the details *you* supply
-- Scores the draft with a transparent heuristic checklist
-- Supports bulk CSV processing
-- Optional real LLM backend (OpenAI-compatible / xAI Grok) when an API key is present
-- Local history and export
-- Free-tier style usage limits (local tracking)
+- Final brand/domain/trademark clearance for “TrueDraft”
+- Production PostgreSQL (SQLite is fine for early users only)
+- Live Stripe price IDs + webhook endpoint
+- Operator legal entity + filled-in contact details on Legal pages
 
-## Critical design rules (fact-locking)
+## Features
 
-- The generator **does not invent** materials, ratings, “bestseller”, shipping claims, “handmade”, certifications, or other factual attributes you did not provide.
-- Missing fields stay missing.
-- Every generation is clearly labeled as a draft that must be reviewed.
+- Fact-locked generation (template + optional LLM)
+- User accounts (streamlit-authenticator)
+- Per-user history and usage isolation
+- Free / Starter / Pro / Agency plan limits
+- Stripe Checkout skeleton
+- Bulk CSV mode
+- SEO checklist scores
+- Terms, Privacy, Acceptable Use pages
+- Docker (non-root, healthcheck)
+- Basic automated tests (`tests/test_fact_lock.py`)
 
 ## Quick start
 
@@ -31,33 +36,27 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Optional:
+Default demo login: **demo** / **secret**  
+(Change in `config/credentials.yaml`)
+
+Skip auth for local solo use:
 
 ```bash
-export OPENAI_API_KEY=sk-...          # or XAI_API_KEY for Grok
-export LISTINGFORGE_REQUIRE_AUTH=true # enable simple password gate
-export LISTINGFORGE_PASSWORD=yourpass
+export TRUEDRAFT_SKIP_AUTH=true
 ```
 
-## What this is not
+## Stripe (optional)
 
-- Not a multi-user production SaaS
-- Not a ranking predictor
-- Not a substitute for reviewing your own product claims
-- Not ready for public paid launch under the current name without further work (auth, database, billing, brand clearance)
+```bash
+export STRIPE_SECRET_KEY=sk_live_...
+export STRIPE_WEBHOOK_SECRET=whsec_...
+export STRIPE_PRICE_STARTER=price_...
+export STRIPE_PRICE_PRO=price_...
+export STRIPE_PRICE_AGENCY=price_...
+```
 
-## Free-tier limits (local)
-
-- 8 generations per day
-- 40 generations per month
-
-These are enforced locally via `core/usage.py`. They are not a substitute for real per-user billing.
+Upgrade buttons appear on the Pricing page when configured.
 
 ## License
 
-MIT — you own the code. You may rebrand, sell, or modify it.
-
-## Honest status
-
-v0.1 self-hosted alpha. Suitable for personal use or closed testing after review.  
-See the independent audit notes in project history for the full list of requirements before any public paid release.
+MIT
