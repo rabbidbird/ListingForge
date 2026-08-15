@@ -8,6 +8,7 @@ venv/
 .venv/
 *.db
 data/listings.db
+data/usage.json
 .DS_Store
 .streamlit/secrets.toml
 *.log
