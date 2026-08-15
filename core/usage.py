@@ -63,7 +63,6 @@ def record_generation() -> Dict:
     data["monthly"][month] = data["monthly"].get(month, 0) + 1
     data["total"] = data.get("total", 0) + 1
 
-    # Clean old daily keys (keep last 14 days)
     if len(data["daily"]) > 14:
         for k in sorted(data["daily"].keys())[:-14]:
             del data["daily"][k]
