@@ -1,74 +1,68 @@
 """
-About, Pricing & Monetization guide for ListingForge
+About & honest status for ListingForge v0.1
 """
 
 import streamlit as st
 
-st.set_page_config(page_title="About & Pricing | ListingForge", page_icon="💎", layout="wide")
+st.set_page_config(page_title="About | ListingForge", page_icon="💎", layout="wide")
 
-st.title("💎 About ListingForge & Pricing")
+st.title("About ListingForge (v0.1 Alpha)")
 
 st.markdown("""
-## What is ListingForge?
+## What this is
 
-ListingForge is a complete micro-SaaS that turns basic product info into high-converting, SEO-optimized titles, descriptions, and tags for Etsy, Shopify, and Amazon sellers.
+ListingForge is a **self-hosted draft generator** for product titles, descriptions, and tags.
 
-It is built to be deployed and sold.
+It is designed to help you start from the facts *you* provide, then produce a draft you must review and edit before publishing.
 
----
-
-## Current Free Tier
-
-- **8 generations per day**
-- **40 generations per month**
-- Full access to Optimizer, Bulk mode, SEO Analyzer, and History
-
-When you hit the limit you will see a clear upgrade message.
+### Core rule
+**It does not invent product facts.**  
+Materials, ratings, shipping claims, “handmade”, certifications, stock status, and similar statements only appear if you supplied them.
 
 ---
 
-## Recommended Paid Plans
+## Current limits (local free-tier style)
 
-| Plan | Price | What you get |
-|------|-------|--------------|
-| **Starter** | $9–12 / month | 100 generations / month + bulk |
-| **Pro** | $19–29 / month | Unlimited generations |
-| **Agency** | $49–79 / month | Unlimited + white-label + multi-user |
-| **Lifetime** | $97–147 one-time | Unlimited forever |
+- 8 generations per day  
+- 40 generations per month  
 
-These price points are proven in the Etsy/Shopify tool space.
+Tracked locally. Suitable for personal or single-user use.
 
 ---
 
-## How to turn this into revenue
+## Recommended next steps if you want a commercial product
 
-1. **Deploy** the app (Streamlit Community Cloud is free and takes 2 minutes)
-2. **Gate the free tier** (already implemented via `core/usage.py`)
-3. **Add Stripe Checkout** for the paid plans
-4. **Promote** in Etsy seller groups, Reddit, Product Hunt, and YouTube
+1. **Rename** — “ListingForge” is already used by other live products in the same space. Choose a distinctive name and clear domains / trademarks.
+2. **Real accounts + authorization** — per-user isolation, not a shared SQLite file.
+3. **Managed database** (PostgreSQL) with migrations and backups.
+4. **Stripe + real entitlements** — Checkout, webhooks, per-plan limits.
+5. **Marketplace-specific adapters** with current official rules for Etsy, Amazon, Shopify.
+6. **CI, tests, pinned deploys, monitoring**.
+7. **Legal pages** — privacy, terms, acceptable use, disclosure that output is a draft.
 
-### Stripe (high-level)
-
-- Create 3–4 products in your Stripe Dashboard
-- Add a “Upgrade” button that creates a Checkout Session
-- On successful payment, raise or remove the limits in `core/usage.py` (or move limits to a real user database)
-
-Full notes are in `docs/DEPLOYMENT.md`.
+Until those are done, treat this as a private / self-hosted tool, not a public paid SaaS.
 
 ---
 
-## Technical overview
+## How to run
 
-- **Template engine** works offline with zero API cost
-- **Optional real LLM** (OpenAI / xAI Grok) activates automatically when an API key is present
-- History is stored in local SQLite
-- All scoring logic is transparent and adjustable
+```bash
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+Optional password gate:
+
+```bash
+export LISTINGFORGE_REQUIRE_AUTH=true
+export LISTINGFORGE_PASSWORD=your-secret
+```
 
 ---
 
 ## Ownership
 
-You own this codebase. Sell it, rebrand it, open-source it, or keep it private.
+MIT licensed. You own the code.
 """)
 
-st.success("This is a functional, sellable product. Deploy it and start charging.")
+st.info("All generated content is a draft. Verify every claim against your actual product before publishing.")
