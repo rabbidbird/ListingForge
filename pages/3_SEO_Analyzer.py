@@ -1,71 +1,64 @@
-"""
-Standalone SEO Analyzer – score any existing listing
-"""
+"""Authenticated transparent listing checklist."""
+
+from __future__ import annotations
 
 import streamlit as st
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from core.auth import require_streamlit_user
 from core.seo_scorer import SEOScorer
+from core.ui import configure_page, heuristic_notice, render_sidebar
 
-st.set_page_config(page_title="SEO Analyzer | ListingForge", page_icon="📊", layout="wide")
+configure_page("Listing Checklist", "📋")
+user = require_streamlit_user()
+render_sidebar(user)
 
-st.title("📊 SEO Listing Analyzer")
-st.caption("Paste any existing title, description, and tags to get an honest score and actionable feedback.")
+st.title("Listing checklist")
+heuristic_notice()
+st.caption(
+    "This checks visible structure and a few current platform constraints. It cannot assess "
+    "truth, category eligibility, ranking, buyer intent, or marketplace enforcement."
+)
 
-scorer = SEOScorer()
-
-with st.form("analyze_form"):
+with st.form("checklist_form"):
     platform = st.radio("Platform", ["etsy", "shopify", "amazon"], horizontal=True)
-    title = st.text_input("Current Title", placeholder="Paste your current product title")
-    primary_keyword = st.text_input("Primary Keyword you are targeting")
-    description = st.text_area("Current Description", height=200, placeholder="Paste full description")
-    tags_raw = st.text_input("Tags (comma separated)", placeholder="tag1, tag2, tag3...")
-    secondary = st.text_input("Secondary keywords (comma separated, optional)")
+    title = st.text_input("Current title", max_chars=500)
+    primary_keyword = st.text_input("Primary phrase you selected", max_chars=300)
+    description = st.text_area("Current description", height=220)
+    tags_raw = st.text_input("Tags (comma separated)", max_chars=1000)
+    secondary_raw = st.text_input("Other supplied phrases (comma separated)", max_chars=1000)
+    submitted = st.form_submit_button("Run heuristic checklist", type="primary")
 
-    analyze = st.form_submit_button("Analyze Listing", type="primary")
-
-if analyze:
-    if not title and not description:
-        st.warning("Please provide at least a title or description.")
-        st.stop()
-
-    tags = [t.strip() for t in tags_raw.split(",") if t.strip()] if tags_raw else []
-    secondary_list = [k.strip() for k in secondary.split(",") if k.strip()] if secondary else []
-
-    title_res = scorer.score_title(title or "", primary_keyword, platform)
-    desc_res = scorer.score_description(description or "", primary_keyword, secondary_list)
-    tags_res = scorer.score_tags(tags, primary_keyword, platform)
-    overall = scorer.overall_score(title_res, desc_res, tags_res)
-
-    # Banner
-    color = "#22c55e" if overall["overall"] >= 80 else "#eab308" if overall["overall"] >= 65 else "#ef4444"
-    st.markdown(f"""
-    <div style="background:#1e293b; border:1px solid #334155; border-radius:12px; padding:1.5rem; margin:1rem 0;">
-        <h2 style="margin:0; color:{color};">{overall['overall']}/100 — Grade {overall['grade']}</h2>
-        <p style="margin:0.5rem 0 0; color:#94a3b8;">{overall['summary']}</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Title", f"{title_res['score']}/100", help=f"Length: {title_res.get('length', 0)} chars")
-    c2.metric("Description", f"{desc_res['score']}/100", help=f"{desc_res.get('word_count', 0)} words")
-    c3.metric("Tags", f"{tags_res['score']}/100", help=f"{tags_res.get('count', 0)} tags")
-
-    st.markdown("### Actionable Feedback")
-    if overall["feedback"]:
-        for item in overall["feedback"]:
-            st.markdown(f"- {item}")
+if submitted:
+    if not title.strip() and not description.strip():
+        st.error("Enter a title or description to check.")
     else:
-        st.success("No major issues detected. Strong foundation.")
+        scorer = SEOScorer()
+        tags = [tag.strip() for tag in tags_raw.split(",") if tag.strip()]
+        secondary = [value.strip() for value in secondary_raw.split(",") if value.strip()]
+        title_result = scorer.score_title(title, primary_keyword, platform)
+        description_result = scorer.score_description(description, primary_keyword, secondary)
+        tags_result = scorer.score_tags(tags, primary_keyword, platform)
+        overall = scorer.overall_score(title_result, description_result, tags_result)
 
-    with st.expander("Raw score details"):
-        st.json({
-            "title": title_res,
-            "description": desc_res,
-            "tags": tags_res,
-            "overall": overall,
-        })
+        st.subheader(f"Checklist: {overall['overall']}/100 · Grade {overall['grade']}")
+        st.caption(overall["summary"])
+        one, two, three = st.columns(3)
+        one.metric("Title checklist", f"{title_result['score']}/100")
+        two.metric("Description checklist", f"{description_result['score']}/100")
+        three.metric("Tags checklist", f"{tags_result['score']}/100")
+        st.subheader("Review items")
+        if overall["feedback"]:
+            for item in overall["feedback"]:
+                st.markdown(f"- {item}")
+        else:
+            st.write("No structural warnings found. Verify every claim and current rule manually.")
+        with st.expander("Transparent check details"):
+            st.json(
+                {
+                    "title": title_result,
+                    "description": description_result,
+                    "tags": tags_result,
+                }
+            )
 else:
-    st.info("Paste an existing listing above to receive a detailed SEO audit.")
+    st.info("Paste existing listing text to run the checklist.")

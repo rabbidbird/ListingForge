@@ -1,75 +1,213 @@
-"""
-Simple local usage tracking + free tier limits for ListingForge.
-For a real multi-user SaaS this would move to a proper database + user accounts.
-"""
+"""Transactional per-user entitlements, quotas, and generation rate limits."""
 
-import json
-from datetime import datetime, date
-from pathlib import Path
-from typing import Dict, Optional
+from __future__ import annotations
 
-USAGE_FILE = Path(__file__).parent.parent / "data" / "usage.json"
+import uuid
+from datetime import UTC, datetime, timedelta
 
-# Free tier limits
-FREE_DAILY_LIMIT = 8
-FREE_MONTHLY_LIMIT = 40
+from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy.orm import Session
 
+from .database import session_scope
+from .models import Subscription, UsageEvent, User, utcnow
+from .plans import ACTIVE_SUBSCRIPTION_STATUSES, PLANS, get_plan_policy
 
-def _load() -> Dict:
-    USAGE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    if USAGE_FILE.exists():
-        try:
-            return json.loads(USAGE_FILE.read_text())
-        except Exception:
-            pass
-    return {"daily": {}, "monthly": {}, "total": 0}
+FREE_DAILY_LIMIT = PLANS["free"].daily_generations
+FREE_MONTHLY_LIMIT = PLANS["free"].monthly_generations
 
 
-def _save(data: Dict):
-    USAGE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    USAGE_FILE.write_text(json.dumps(data, indent=2))
+class UsageLimitError(RuntimeError):
+    def __init__(self, message: str, code: str = "limit_reached") -> None:
+        super().__init__(message)
+        self.code = code
 
 
-def get_usage() -> Dict:
-    data = _load()
-    today = date.today().isoformat()
-    month = date.today().strftime("%Y-%m")
-
-    daily_count = data.get("daily", {}).get(today, 0)
-    monthly_count = data.get("monthly", {}).get(month, 0)
-
-    return {
-        "daily": daily_count,
-        "monthly": monthly_count,
-        "total": data.get("total", 0),
-        "daily_limit": FREE_DAILY_LIMIT,
-        "monthly_limit": FREE_MONTHLY_LIMIT,
-        "daily_remaining": max(0, FREE_DAILY_LIMIT - daily_count),
-        "monthly_remaining": max(0, FREE_MONTHLY_LIMIT - monthly_count),
-        "can_generate": daily_count < FREE_DAILY_LIMIT and monthly_count < FREE_MONTHLY_LIMIT,
-    }
+def _period_starts(now: datetime) -> tuple[datetime, datetime, datetime]:
+    day_start = datetime(now.year, now.month, now.day, tzinfo=UTC)
+    month_start = datetime(now.year, now.month, 1, tzinfo=UTC)
+    minute_start = now - timedelta(seconds=60)
+    return day_start, month_start, minute_start
 
 
-def record_generation() -> Dict:
-    """Record one generation and return updated usage."""
-    data = _load()
-    today = date.today().isoformat()
-    month = date.today().strftime("%Y-%m")
-
-    data.setdefault("daily", {})
-    data.setdefault("monthly", {})
-
-    data["daily"][today] = data["daily"].get(today, 0) + 1
-    data["monthly"][month] = data["monthly"].get(month, 0) + 1
-    data["total"] = data.get("total", 0) + 1
-
-    if len(data["daily"]) > 14:
-        for k in sorted(data["daily"].keys())[:-14]:
-            del data["daily"][k]
-
-    _save(data)
-    return get_usage()
+def _countable(now: datetime):
+    return or_(
+        UsageEvent.status == "completed",
+        and_(UsageEvent.status == "reserved", UsageEvent.created_at >= now - timedelta(minutes=5)),
+    )
 
 
-def is_limit_reached() -> bool:
-    return not get_usage()["can_generate"]
+def _effective_plan(session, user_id: uuid.UUID) -> str:
+    subscription = session.scalar(select(Subscription).where(Subscription.user_id == user_id))
+    if (
+        subscription is not None
+        and subscription.plan in PLANS
+        and subscription.plan != "free"
+        and subscription.status in ACTIVE_SUBSCRIPTION_STATUSES
+    ):
+        return subscription.plan
+    return "free"
+
+
+def reserve_generation(
+    user_id: uuid.UUID, *, mode: str, provider: str, now: datetime | None = None
+) -> tuple[uuid.UUID, str]:
+    now = now or utcnow()
+    day_start, month_start, minute_start = _period_starts(now)
+    with session_scope() as session:
+        user = session.scalar(select(User).where(User.id == user_id).with_for_update())
+        if user is None or not user.is_active:
+            raise UsageLimitError("Active account required.", "unauthorized")
+
+        plan = _effective_plan(session, user_id)
+        policy = get_plan_policy(plan)
+        base = [
+            UsageEvent.user_id == user_id,
+            UsageEvent.kind == "generation",
+            _countable(now),
+        ]
+        daily = (
+            session.scalar(
+                select(func.count())
+                .select_from(UsageEvent)
+                .where(*base, UsageEvent.created_at >= day_start)
+            )
+            or 0
+        )
+        monthly = (
+            session.scalar(
+                select(func.count())
+                .select_from(UsageEvent)
+                .where(*base, UsageEvent.created_at >= month_start)
+            )
+            or 0
+        )
+        recent = (
+            session.scalar(
+                select(func.count())
+                .select_from(UsageEvent)
+                .where(*base, UsageEvent.created_at >= minute_start)
+            )
+            or 0
+        )
+
+        if daily >= policy.daily_generations:
+            raise UsageLimitError(
+                f"{policy.name} daily limit reached ({policy.daily_generations}, UTC).",
+                "daily_limit",
+            )
+        if monthly >= policy.monthly_generations:
+            raise UsageLimitError(
+                f"{policy.name} monthly limit reached ({policy.monthly_generations}, UTC).",
+                "monthly_limit",
+            )
+        if recent >= policy.per_minute_generations:
+            raise UsageLimitError(
+                "Generation rate limit reached. Wait a minute and try again.", "rate_limit"
+            )
+        if provider == "llm":
+            llm_daily = (
+                session.scalar(
+                    select(func.count())
+                    .select_from(UsageEvent)
+                    .where(
+                        *base,
+                        UsageEvent.created_at >= day_start,
+                        UsageEvent.provider == "llm",
+                    )
+                )
+                or 0
+            )
+            if llm_daily >= policy.daily_llm_generations:
+                raise UsageLimitError(
+                    f"{policy.name} daily LLM limit reached ({policy.daily_llm_generations}, UTC). "
+                    "Use template mode or try tomorrow.",
+                    "llm_daily_limit",
+                )
+
+        event = UsageEvent(user_id=user_id, mode=mode, provider=provider, created_at=now)
+        session.add(event)
+        session.flush()
+        return event.id, plan
+
+
+def complete_generation(
+    event_id: uuid.UUID, listing_id: uuid.UUID, *, session: Session | None = None
+) -> None:
+    statement = (
+        update(UsageEvent)
+        .where(UsageEvent.id == event_id, UsageEvent.status == "reserved")
+        .values(
+            status="completed",
+            completed_at=utcnow(),
+            details_json={"listing_id": str(listing_id)},
+        )
+    )
+    if session is not None:
+        session.execute(statement)
+        return
+    with session_scope() as own_session:
+        own_session.execute(statement)
+
+
+def fail_generation(event_id: uuid.UUID, reason: str = "generation_failed") -> None:
+    with session_scope() as session:
+        session.execute(
+            update(UsageEvent)
+            .where(UsageEvent.id == event_id, UsageEvent.status == "reserved")
+            .values(status="failed", completed_at=utcnow(), details_json={"reason": reason[:120]})
+        )
+
+
+def get_usage(user_id: uuid.UUID, *, now: datetime | None = None) -> dict[str, object]:
+    now = now or utcnow()
+    day_start, month_start, _ = _period_starts(now)
+    with session_scope() as session:
+        plan = _effective_plan(session, user_id)
+        policy = get_plan_policy(plan)
+        base = [
+            UsageEvent.user_id == user_id,
+            UsageEvent.kind == "generation",
+            _countable(now),
+        ]
+        daily = (
+            session.scalar(
+                select(func.count())
+                .select_from(UsageEvent)
+                .where(*base, UsageEvent.created_at >= day_start)
+            )
+            or 0
+        )
+        monthly = (
+            session.scalar(
+                select(func.count())
+                .select_from(UsageEvent)
+                .where(*base, UsageEvent.created_at >= month_start)
+            )
+            or 0
+        )
+        return {
+            "plan": plan,
+            "daily": daily,
+            "monthly": monthly,
+            "daily_limit": policy.daily_generations,
+            "monthly_limit": policy.monthly_generations,
+            "daily_remaining": max(0, policy.daily_generations - daily),
+            "monthly_remaining": max(0, policy.monthly_generations - monthly),
+            "can_generate": daily < policy.daily_generations
+            and monthly < policy.monthly_generations,
+            "bulk_rows_per_job": policy.bulk_rows_per_job,
+            "daily_llm_limit": policy.daily_llm_generations,
+        }
+
+
+def assert_bulk_job_allowed(user_id: uuid.UUID, row_count: int) -> str:
+    if row_count < 1:
+        raise UsageLimitError("The CSV has no rows to process.", "empty_bulk")
+    with session_scope() as session:
+        plan = _effective_plan(session, user_id)
+    cap = get_plan_policy(plan).bulk_rows_per_job
+    if row_count > cap:
+        raise UsageLimitError(
+            f"{get_plan_policy(plan).name} bulk jobs are capped at {cap} rows.", "bulk_cap"
+        )
+    return plan

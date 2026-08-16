@@ -1,82 +1,107 @@
-"""
-Listing History – view and manage previously generated listings
-"""
+"""Authorized listing history read/delete/export UI."""
 
-import streamlit as st
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from core.utils import get_history, get_listing_by_id, delete_listing, export_to_dataframe
-import json
-
-st.set_page_config(page_title="History | ListingForge", page_icon="🕘", layout="wide")
-
-st.title("🕘 Generation History")
-st.caption("All listings you generate are automatically saved locally (SQLite).")
-
-history = get_history(limit=100)
-
-if not history:
-    st.info("No listings generated yet. Go to the Optimizer and create your first one.")
-    st.stop()
-
-# Summary metrics
-scores = [h["overall_score"] for h in history if h["overall_score"] is not None]
-avg_score = sum(scores) / len(scores) if scores else 0
-st.metric("Listings in history", len(history))
-st.metric("Average overall score", f"{avg_score:.1f}")
-
-st.markdown("---")
-
-# Table
-df_display = []
-for h in history:
-    df_display.append({
-        "ID": h["id"],
-        "Date": h["created_at"][:16].replace("T", " "),
-        "Product": h["product_name"][:50],
-        "Platform": h["platform"],
-        "Score": h["overall_score"],
-        "Grade": h["grade"],
-        "Title": (h["best_title"] or "")[:60],
-    })
+from __future__ import annotations
 
 import pandas as pd
-st.dataframe(pd.DataFrame(df_display), use_container_width=True, hide_index=True)
+import streamlit as st
 
-st.markdown("### Inspect or delete a listing")
-selected_id = st.number_input("Listing ID", min_value=1, value=history[0]["id"] if history else 1, step=1)
+from core.auth import require_streamlit_user
+from core.ui import (
+    configure_page,
+    confirm_before_export,
+    copy_button,
+    draft_banner,
+    render_sidebar,
+)
+from core.utils import (
+    delete_listing,
+    export_to_dataframe,
+    get_full_history,
+    get_history,
+    get_listing_by_id,
+)
 
-col1, col2 = st.columns(2)
-with col1:
-    if st.button("🔍 View Full Listing"):
-        full = get_listing_by_id(int(selected_id))
-        if full:
-            st.subheader(full["best_title"])
-            st.write(f"**Score:** {full['scores']['overall']['overall']} ({full['scores']['overall']['grade']})")
-            st.text_area("Description", full["description"], height=300)
-            st.code(", ".join(full["tags"]))
-            st.json(full["scores"])
-        else:
-            st.error("Listing not found.")
+configure_page("History", "🕘")
+user = require_streamlit_user()
+render_sidebar(user)
 
-with col2:
-    if st.button("🗑️ Delete Listing", type="secondary"):
-        if delete_listing(int(selected_id)):
-            st.success("Deleted.")
+st.title("Private draft history")
+st.caption("Every query below is scoped server-side to your immutable user ID.")
+history = get_history(user.id, limit=500)
+if not history:
+    st.info("No saved drafts yet.")
+    st.stop()
+
+scores = [row["overall_score"] for row in history if row["overall_score"] is not None]
+first, second = st.columns(2)
+first.metric("Saved drafts shown", len(history))
+second.metric("Average checklist", f"{sum(scores) / len(scores):.1f}" if scores else "—")
+
+table = pd.DataFrame(
+    [
+        {
+            "Date": row["created_at"][:16].replace("T", " "),
+            "Product": row["product_name"],
+            "Platform": row["platform"],
+            "Checklist": row["overall_score"],
+            "Grade": row["grade"],
+            "Draft title": row["best_title"],
+        }
+        for row in history
+    ]
+)
+st.dataframe(table, use_container_width=True, hide_index=True)
+
+labels = {
+    row["id"]: f"{row['created_at'][:10]} · {row['product_name'][:70]} · {row['id'][:8]}"
+    for row in history
+}
+selected_id = st.selectbox(
+    "Inspect a saved draft",
+    options=[row["id"] for row in history],
+    format_func=lambda value: labels[value],
+)
+full = get_listing_by_id(user.id, selected_id)
+if full is None:
+    st.error("Draft not found or not authorized.")
+else:
+    draft_banner()
+    st.subheader(full["best_title"])
+    copy_button(full["best_title"], label="Copy title")
+    st.text_area(
+        "Description",
+        value=full["description"],
+        height=280,
+        key=f"history_description_{selected_id}",
+        disabled=True,
+    )
+    copy_button(full["description"], label="Copy description")
+    tags = ", ".join(full["tags"])
+    st.code(tags, language=None)
+    copy_button(tags, label="Copy tags")
+
+    confirm_delete = st.checkbox(
+        "I understand this permanently deletes this saved draft.",
+        key=f"delete_confirm_{selected_id}",
+    )
+    if st.button("Delete selected draft", disabled=not confirm_delete):
+        if delete_listing(user.id, selected_id):
+            st.success("Draft deleted.")
             st.rerun()
         else:
-            st.error("Could not delete.")
+            st.error("Draft not found or not authorized.")
 
-# Export all
-if st.button("⬇️ Export entire history as CSV"):
-    full_results = []
-    for h in history:
-        full = get_listing_by_id(h["id"])
-        if full:
-            full_results.append(full)
-    if full_results:
-        export_df = export_to_dataframe(full_results)
-        csv = export_df.to_csv(index=False).encode("utf-8")
-        st.download_button("Download History CSV", data=csv, file_name="listingforge_history.csv", mime="text/csv")
+st.divider()
+st.subheader("Export saved drafts")
+full_results = get_full_history(user.id, limit=500)
+confirmed = confirm_before_export("history")
+if confirmed and full_results:
+    export_frame = export_to_dataframe(full_results)
+    st.download_button(
+        "Download shown history as CSV",
+        data=export_frame.to_csv(index=False).encode("utf-8"),
+        file_name="truedraft_history.csv",
+        mime="text/csv",
+    )
+elif not confirmed:
+    st.caption("Complete all confirmation checks to enable the history download.")
