@@ -1,139 +1,187 @@
-"""
-Utility helpers for ListingForge
-"""
+"""User-scoped listing persistence, export, and input-cleaning helpers."""
 
-import json
+from __future__ import annotations
+
+import math
 import re
-import sqlite3
-from datetime import datetime
-from pathlib import Path
-from typing import Dict, List, Optional
+import uuid
+from typing import Any
+
 import pandas as pd
+from sqlalchemy import delete, select, update
+from sqlalchemy.orm import Session
 
-DB_PATH = Path(__file__).parent.parent / "data" / "listings.db"
-
-
-def init_db():
-    """Initialize SQLite database for history."""
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS listings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            created_at TEXT NOT NULL,
-            product_name TEXT NOT NULL,
-            primary_keyword TEXT,
-            platform TEXT,
-            category TEXT,
-            best_title TEXT,
-            description TEXT,
-            tags TEXT,
-            overall_score REAL,
-            grade TEXT,
-            full_json TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
+from .database import session_scope
+from .models import Listing
 
 
-def save_listing(result: Dict) -> int:
-    """Save a generated listing to history. Returns the new ID."""
-    init_db()
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+def clean_optional_text(value: Any) -> str:
+    """Turn null-like CSV values into empty text without leaking ``nan``."""
+    if value is None:
+        return ""
+    if isinstance(value, float) and math.isnan(value):
+        return ""
+    text = str(value).strip()
+    if text.lower() in {"nan", "<na>", "none", "null"}:
+        return ""
+    return re.sub(r"\s+", " ", text)
+
+
+def _new_listing(user_id: uuid.UUID, result: dict[str, Any]) -> Listing:
     overall = result["scores"]["overall"]
-    cursor.execute("""
-        INSERT INTO listings (
-            created_at, product_name, primary_keyword, platform, category,
-            best_title, description, tags, overall_score, grade, full_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        datetime.utcnow().isoformat(),
-        result["meta"]["product_name"],
-        result["meta"]["primary_keyword"],
-        result["platform"],
-        result["meta"]["category"],
-        result["best_title"],
-        result["description"],
-        json.dumps(result["tags"]),
-        overall["overall"],
-        overall["grade"],
-        json.dumps(result),
-    ))
-    listing_id = cursor.lastrowid
-    conn.commit()
-    conn.close()
-    return listing_id
+    return Listing(
+        user_id=user_id,
+        product_name=clean_optional_text(result["meta"]["product_name"]),
+        primary_keyword=clean_optional_text(result["meta"]["primary_keyword"]),
+        platform=clean_optional_text(result["platform"]),
+        category=clean_optional_text(result["meta"]["category"]),
+        best_title=clean_optional_text(result["best_title"]),
+        description=str(result["description"]),
+        tags_json=[clean_optional_text(tag) for tag in result["tags"]],
+        overall_score=float(overall["overall"]),
+        grade=str(overall["grade"]),
+        full_json=result,
+    )
 
 
-def get_history(limit: int = 50) -> List[Dict]:
-    """Retrieve recent listings."""
-    init_db()
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT id, created_at, product_name, primary_keyword, platform,
-               category, best_title, overall_score, grade
-        FROM listings
-        ORDER BY created_at DESC
-        LIMIT ?
-    """, (limit,))
-    rows = [dict(row) for row in cursor.fetchall()]
-    conn.close()
-    return rows
+def save_listing(
+    user_id: uuid.UUID, result: dict[str, Any], *, session: Session | None = None
+) -> uuid.UUID:
+    """Save a listing for exactly one user."""
+    if session is not None:
+        listing = _new_listing(user_id, result)
+        session.add(listing)
+        session.flush()
+        return listing.id
+    with session_scope() as own_session:
+        listing = _new_listing(user_id, result)
+        own_session.add(listing)
+        own_session.flush()
+        return listing.id
 
 
-def get_listing_by_id(listing_id: int) -> Optional[Dict]:
-    init_db()
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT full_json FROM listings WHERE id = ?", (listing_id,))
-    row = cursor.fetchone()
-    conn.close()
-    if row:
-        return json.loads(row[0])
-    return None
+def get_history(user_id: uuid.UUID, limit: int = 50) -> list[dict[str, Any]]:
+    limit = max(1, min(int(limit), 500))
+    with session_scope() as session:
+        rows = session.scalars(
+            select(Listing)
+            .where(Listing.user_id == user_id)
+            .order_by(Listing.created_at.desc())
+            .limit(limit)
+        ).all()
+        return [
+            {
+                "id": str(row.id),
+                "created_at": row.created_at.isoformat(),
+                "product_name": row.product_name,
+                "primary_keyword": row.primary_keyword,
+                "platform": row.platform,
+                "category": row.category,
+                "best_title": row.best_title,
+                "overall_score": row.overall_score,
+                "grade": row.grade,
+            }
+            for row in rows
+        ]
 
 
-def delete_listing(listing_id: int) -> bool:
-    init_db()
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM listings WHERE id = ?", (listing_id,))
-    deleted = cursor.rowcount > 0
-    conn.commit()
-    conn.close()
-    return deleted
+def get_full_history(user_id: uuid.UUID, limit: int = 500) -> list[dict[str, Any]]:
+    """Retrieve authorized full records in one bounded query for export."""
+    limit = max(1, min(int(limit), 500))
+    with session_scope() as session:
+        return list(
+            session.scalars(
+                select(Listing.full_json)
+                .where(Listing.user_id == user_id)
+                .order_by(Listing.created_at.desc())
+                .limit(limit)
+            ).all()
+        )
 
 
-def export_to_dataframe(results: List[Dict]) -> pd.DataFrame:
-    """Convert listing results to a clean DataFrame for CSV export."""
-    rows = []
-    for r in results:
-        rows.append({
-            "Product Name": r["meta"]["product_name"],
-            "Primary Keyword": r["meta"]["primary_keyword"],
-            "Platform": r["platform"],
-            "Best Title": r["best_title"],
-            "Title Options": " | ".join(r["titles"]),
-            "Description": r["description"],
-            "Tags": ", ".join(r["tags"]),
-            "Overall Score": r["scores"]["overall"]["overall"],
-            "Grade": r["scores"]["overall"]["grade"],
-            "Title Score": r["scores"]["title"]["score"],
-            "Description Score": r["scores"]["description"]["score"],
-            "Tags Score": r["scores"]["tags"]["score"],
-        })
+def _parse_listing_id(listing_id: str | uuid.UUID) -> uuid.UUID | None:
+    if isinstance(listing_id, uuid.UUID):
+        return listing_id
+    try:
+        return uuid.UUID(str(listing_id))
+    except (ValueError, TypeError):
+        return None
+
+
+def get_listing_by_id(user_id: uuid.UUID, listing_id: str | uuid.UUID) -> dict[str, Any] | None:
+    parsed = _parse_listing_id(listing_id)
+    if parsed is None:
+        return None
+    with session_scope() as session:
+        row = session.scalar(
+            select(Listing).where(Listing.id == parsed, Listing.user_id == user_id)
+        )
+        return row.full_json if row is not None else None
+
+
+def update_listing(user_id: uuid.UUID, listing_id: str | uuid.UUID, result: dict[str, Any]) -> bool:
+    """Authorized update helper; never updates a row owned by another user."""
+    parsed = _parse_listing_id(listing_id)
+    if parsed is None:
+        return False
+    values = _new_listing(user_id, result)
+    with session_scope() as session:
+        changed = session.execute(
+            update(Listing)
+            .where(Listing.id == parsed, Listing.user_id == user_id)
+            .values(
+                product_name=values.product_name,
+                primary_keyword=values.primary_keyword,
+                platform=values.platform,
+                category=values.category,
+                best_title=values.best_title,
+                description=values.description,
+                tags_json=values.tags_json,
+                overall_score=values.overall_score,
+                grade=values.grade,
+                full_json=values.full_json,
+            )
+        )
+        return bool(changed.rowcount)
+
+
+def delete_listing(user_id: uuid.UUID, listing_id: str | uuid.UUID) -> bool:
+    parsed = _parse_listing_id(listing_id)
+    if parsed is None:
+        return False
+    with session_scope() as session:
+        result = session.execute(
+            delete(Listing).where(Listing.id == parsed, Listing.user_id == user_id)
+        )
+        return bool(result.rowcount)
+
+
+def export_to_dataframe(results: list[dict[str, Any]]) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    for result in results:
+        rows.append(
+            {
+                "Product Name": clean_optional_text(result["meta"]["product_name"]),
+                "Primary Keyword": clean_optional_text(result["meta"]["primary_keyword"]),
+                "Platform": clean_optional_text(result["platform"]),
+                "Best Title": clean_optional_text(result["best_title"]),
+                "Title Options": " | ".join(
+                    clean_optional_text(title) for title in result["titles"]
+                ),
+                "Description": str(result["description"]),
+                "Tags": ", ".join(clean_optional_text(tag) for tag in result["tags"]),
+                "Overall Score": result["scores"]["overall"]["overall"],
+                "Grade": result["scores"]["overall"]["grade"],
+                "Title Score": result["scores"]["title"]["score"],
+                "Description Score": result["scores"]["description"]["score"],
+                "Tags Score": result["scores"]["tags"]["score"],
+                "Draft Disclaimer": result["disclaimer"],
+            }
+        )
     return pd.DataFrame(rows)
 
 
 def clean_keyword(text: str) -> str:
-    """Normalize a keyword string."""
-    if not text:
-        return ""
-    text = text.lower().strip()
-    text = re.sub(r'[^\w\s\-]', '', text)
-    return re.sub(r'\s+', ' ', text)
+    text = clean_optional_text(text).lower()
+    text = re.sub(r"[^\w\s\-]", "", text)
+    return re.sub(r"\s+", " ", text).strip()

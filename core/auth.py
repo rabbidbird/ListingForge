@@ -1,99 +1,201 @@
-"""
-TrueDraft authentication using streamlit-authenticator.
-Provides login, registration, and current-user helpers.
-For production, replace the YAML credential store with a proper user database.
-"""
+"""Database-backed identity, password, and opaque session-token services."""
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
-from typing import Optional, Tuple
+import hashlib
+import hmac
+import secrets
+import uuid
+from datetime import UTC, timedelta
 
-import streamlit as st
-import streamlit_authenticator as stauth
-import yaml
-from yaml.loader import SafeLoader
+from argon2 import PasswordHasher
+from argon2.exceptions import InvalidHashError, VerifyMismatchError
+from email_validator import EmailNotValidError, validate_email
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
-CONFIG_PATH = Path(__file__).parent.parent / "config" / "credentials.yaml"
-EXAMPLE_PATH = Path(__file__).parent.parent / "config" / "credentials.yaml.example"
+from .config import get_settings
+from .models import Subscription, User, UserSession, utcnow
 
-
-def _ensure_config() -> dict:
-    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    if not CONFIG_PATH.exists():
-        if EXAMPLE_PATH.exists():
-            text = EXAMPLE_PATH.read_text()
-            text = text.replace("listingforge", "truedraft").replace("ListingForge", "TrueDraft")
-            CONFIG_PATH.write_text(text)
-        else:
-            CONFIG_PATH.write_text(
-                """
-credentials:
-  usernames:
-    demo:
-      email: demo@example.com
-      name: Demo User
-      password: $2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW
-cookie:
-  expiry_days: 30
-  key: truedraft_cookie_key_change_me_in_production
-  name: truedraft_auth
-preauthorized:
-  emails: []
-""".strip()
-            )
-    with open(CONFIG_PATH) as f:
-        return yaml.load(f, Loader=SafeLoader)
+TERMS_VERSION = "2026-08-15"
+MIN_PASSWORD_LENGTH = 12
+MAX_PASSWORD_LENGTH = 128
+_PASSWORD_HASHER = PasswordHasher(
+    time_cost=3,
+    memory_cost=65_536,
+    parallelism=4,
+    hash_len=32,
+    salt_len=16,
+)
+_DUMMY_PASSWORD_HASH = _PASSWORD_HASHER.hash("not-a-real-user-password")
 
 
-def get_authenticator() -> stauth.Authenticate:
-    config = _ensure_config()
-    return stauth.Authenticate(
-        config["credentials"],
-        config["cookie"]["name"],
-        config["cookie"]["key"],
-        config["cookie"]["expiry_days"],
+class AuthError(ValueError):
+    """Safe validation error that may be shown to an end user."""
+
+
+def normalize_email(email: str) -> str:
+    try:
+        result = validate_email(email.strip(), check_deliverability=False)
+    except EmailNotValidError as exc:
+        raise AuthError("Enter a valid email address.") from exc
+    return result.normalized.lower()
+
+
+def validate_password(password: str) -> None:
+    if len(password) < MIN_PASSWORD_LENGTH:
+        raise AuthError(f"Password must be at least {MIN_PASSWORD_LENGTH} characters.")
+    if len(password) > MAX_PASSWORD_LENGTH:
+        raise AuthError(f"Password must be no more than {MAX_PASSWORD_LENGTH} characters.")
+
+
+def hash_password(password: str) -> str:
+    validate_password(password)
+    return _PASSWORD_HASHER.hash(password)
+
+
+def verify_password(password_hash: str, password: str) -> bool:
+    try:
+        return _PASSWORD_HASHER.verify(password_hash, password)
+    except (InvalidHashError, VerifyMismatchError):
+        return False
+
+
+def register_user(
+    session: Session,
+    *,
+    email: str,
+    password: str,
+    name: str,
+    accepted_terms: bool,
+) -> User:
+    if not accepted_terms:
+        raise AuthError("You must accept the Terms of Service and Privacy Policy.")
+    clean_name = " ".join(name.split())
+    if not clean_name or len(clean_name) > 120:
+        raise AuthError("Name is required and must be 120 characters or fewer.")
+    normalized_email = normalize_email(email)
+    password_hash = hash_password(password)
+    now = utcnow()
+    user = User(
+        email=normalized_email,
+        name=clean_name,
+        password_hash=password_hash,
+        email_verified_at=None if get_settings().email_verification_required else now,
+        terms_accepted_at=now,
+        terms_version=TERMS_VERSION,
     )
-
-
-def require_login() -> Tuple[Optional[str], Optional[str]]:
-    if os.getenv("TRUEDRAFT_SKIP_AUTH", "").lower() in ("1", "true", "yes"):
-        st.session_state["truedraft_user"] = "local"
-        st.session_state["truedraft_name"] = "Local User"
-        return "Local User", "local"
-
-    authenticator = get_authenticator()
+    session.add(user)
     try:
-        authenticator.login(location="main")
-    except Exception:
-        authenticator.login("Login", "main")
-
-    name = st.session_state.get("name")
-    username = st.session_state.get("username")
-    auth_status = st.session_state.get("authentication_status")
-
-    if auth_status is False:
-        st.error("Username or password is incorrect")
-        st.stop()
-    elif auth_status is None:
-        st.info("Please log in. Default demo account: **demo** / **secret** (change in config/credentials.yaml)")
-        st.stop()
-
-    st.session_state["truedraft_user"] = username
-    st.session_state["truedraft_name"] = name
-    return name, username
+        session.flush()
+    except IntegrityError as exc:
+        session.rollback()
+        raise AuthError("An account with that email already exists.") from exc
+    session.add(Subscription(user_id=user.id, plan="free", status="free"))
+    session.flush()
+    return user
 
 
-def current_user() -> str:
-    return st.session_state.get("truedraft_user") or st.session_state.get("username") or "anonymous"
+def authenticate_user(session: Session, *, email: str, password: str) -> User | None:
+    try:
+        normalized_email = normalize_email(email)
+    except AuthError:
+        normalized_email = "invalid@example.invalid"
+    user = session.scalar(select(User).where(User.email == normalized_email))
+    password_hash = user.password_hash if user is not None else _DUMMY_PASSWORD_HASH
+    valid = verify_password(password_hash, password)
+    if user is None or not valid or not user.is_active:
+        return None
+    if get_settings().email_verification_required and user.email_verified_at is None:
+        raise AuthError("Verify your email before signing in.")
+    if _PASSWORD_HASHER.check_needs_rehash(user.password_hash):
+        user.password_hash = _PASSWORD_HASHER.hash(password)
+    return user
 
 
-def logout_button():
-    if os.getenv("TRUEDRAFT_SKIP_AUTH", "").lower() in ("1", "true", "yes"):
+def _token_hash(token: str) -> str:
+    secret = get_settings().session_secret.encode("utf-8")
+    return hmac.new(secret, token.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def create_user_session(session: Session, user_id: uuid.UUID) -> str:
+    token = secrets.token_urlsafe(48)
+    now = utcnow()
+    session.add(
+        UserSession(
+            user_id=user_id,
+            token_hash=_token_hash(token),
+            expires_at=now + timedelta(days=get_settings().session_days),
+            last_seen_at=now,
+        )
+    )
+    session.flush()
+    return token
+
+
+def get_user_by_session_token(
+    session: Session, token: str | None, *, touch: bool = False
+) -> User | None:
+    if not isinstance(token, str) or not token or len(token) > 512:
+        return None
+    now = utcnow()
+    auth_session = session.scalar(
+        select(UserSession).where(
+            UserSession.token_hash == _token_hash(token),
+            UserSession.revoked_at.is_(None),
+            UserSession.expires_at > now,
+        )
+    )
+    if auth_session is None:
+        return None
+    user = session.get(User, auth_session.user_id)
+    if user is None or not user.is_active:
+        return None
+    last_seen = auth_session.last_seen_at
+    if last_seen.tzinfo is None:
+        last_seen = last_seen.replace(tzinfo=UTC)
+    if touch and (now - last_seen).total_seconds() >= 3600:
+        auth_session.last_seen_at = now
+    return user
+
+
+def revoke_user_session(session: Session, token: str | None) -> None:
+    if not token:
         return
-    try:
-        authenticator = get_authenticator()
-        authenticator.logout("Logout", "sidebar")
-    except Exception:
-        pass
+    auth_session = session.scalar(
+        select(UserSession).where(UserSession.token_hash == _token_hash(token))
+    )
+    if auth_session is not None and auth_session.revoked_at is None:
+        auth_session.revoked_at = utcnow()
+
+
+def streamlit_current_user() -> User | None:
+    """Resolve the HttpOnly cookie received by Streamlit's server connection."""
+    import streamlit as st
+
+    token = st.context.cookies.get(get_settings().session_cookie_name)
+    if not token:
+        return None
+    from .database import session_scope
+
+    with session_scope() as session:
+        return get_user_by_session_token(session, token, touch=True)
+
+
+def require_streamlit_user() -> User:
+    import streamlit as st
+
+    user = streamlit_current_user()
+    if user is None:
+        st.warning("Sign in to use TrueDraft.")
+        st.markdown("[Sign in](/auth/login) · [Create an account](/auth/signup)")
+        st.stop()
+    return user
+
+
+def render_account_sidebar(user: User) -> None:
+    import streamlit as st
+
+    st.sidebar.caption(f"Signed in as {user.email}")
+    st.sidebar.markdown("[Log out](/auth/logout)")

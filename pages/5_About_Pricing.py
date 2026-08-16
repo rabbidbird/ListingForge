@@ -1,68 +1,115 @@
-"""
-About & honest status for ListingForge v0.1
-"""
+"""Public plan table and authenticated Stripe billing actions."""
+
+from __future__ import annotations
 
 import streamlit as st
 
-st.set_page_config(page_title="About | ListingForge", page_icon="💎", layout="wide")
+from core.auth import streamlit_current_user
+from core.billing import (
+    BillingError,
+    create_checkout_session,
+    create_customer_portal_session,
+    get_upgrade_options,
+    stripe_enabled,
+)
+from core.plans import PLANS
+from core.ui import configure_page, render_sidebar
+from core.usage import get_usage
 
-st.title("About ListingForge (v0.1 Alpha)")
+configure_page("Plans & Billing", "💳")
+user = streamlit_current_user()
+render_sidebar(user)
 
-st.markdown("""
-## What this is
+st.title("Plans and billing")
+st.write(
+    "All plans use the same fact-locked generator. Paid plans raise documented quotas; "
+    "none are marketed as unlimited."
+)
+checkout_state = st.query_params.get("checkout")
+if checkout_state == "success":
+    st.success("Checkout returned successfully. Stripe webhooks apply the entitlement shortly.")
+elif checkout_state == "cancelled":
+    st.info("Checkout was cancelled; your current plan is unchanged.")
 
-ListingForge is a **self-hosted draft generator** for product titles, descriptions, and tags.
+columns = st.columns(4)
+for column, plan_name in zip(columns, ["free", "starter", "pro", "agency"], strict=True):
+    policy = PLANS[plan_name]
+    with column:
+        st.subheader(policy.name)
+        st.markdown(f"**{policy.display_price}**")
+        st.write(f"{policy.daily_generations:,} drafts / UTC day")
+        st.write(f"{policy.monthly_generations:,} drafts / UTC month")
+        st.write(f"{policy.bulk_rows_per_job:,} rows / bulk job")
+        st.write(f"{policy.daily_llm_generations:,} LLM attempts / UTC day")
 
-It is designed to help you start from the facts *you* provide, then produce a draft you must review and edit before publishing.
+st.caption(
+    "Limits are enforced per user in database transactions. LLM attempts can fall back to "
+    "template output when source-lock checks fail."
+)
 
-### Core rule
-**It does not invent product facts.**  
-Materials, ratings, shipping claims, “handmade”, certifications, stock status, and similar statements only appear if you supplied them.
+if user is None:
+    st.info("Sign in to start or manage a subscription.")
+    left, right, _ = st.columns([1, 1, 2])
+    left.link_button("Create account", "/auth/signup", type="primary", use_container_width=True)
+    right.link_button("Sign in", "/auth/login", use_container_width=True)
+else:
+    usage = get_usage(user.id)
+    st.subheader(f"Current plan: {str(usage['plan']).title()}")
+    if not stripe_enabled():
+        st.warning(
+            "Live billing is not configured. The operator must set the Stripe restricted API "
+            "key, signing secret, and all three Price IDs."
+        )
+    options = get_upgrade_options()
+    action_columns = st.columns(3)
+    for column, option in zip(action_columns, options, strict=True):
+        with column:
+            if st.button(
+                f"Choose {option['name']}",
+                key=f"checkout_{option['plan']}",
+                disabled=not stripe_enabled(),
+                use_container_width=True,
+            ):
+                try:
+                    url = create_checkout_session(user.id, option["plan"])
+                    st.session_state["stripe_checkout"] = {
+                        "user_id": str(user.id),
+                        "plan": option["plan"],
+                        "url": url,
+                    }
+                except BillingError as exc:
+                    st.error(str(exc))
 
----
+    pending = st.session_state.get("stripe_checkout")
+    if pending and pending.get("user_id") == str(user.id):
+        st.link_button(
+            f"Continue to Stripe Checkout for {str(pending['plan']).title()}",
+            pending["url"],
+            type="primary",
+        )
 
-## Current limits (local free-tier style)
+    if st.button("Open Stripe billing portal", disabled=not stripe_enabled()):
+        try:
+            portal_url = create_customer_portal_session(user.id)
+            st.session_state["stripe_portal"] = {
+                "user_id": str(user.id),
+                "url": portal_url,
+            }
+        except BillingError as exc:
+            st.error(str(exc))
+    portal = st.session_state.get("stripe_portal")
+    if portal and portal.get("user_id") == str(user.id):
+        st.link_button("Continue to Stripe billing portal", portal["url"])
 
-- 8 generations per day  
-- 40 generations per month  
-
-Tracked locally. Suitable for personal or single-user use.
-
----
-
-## Recommended next steps if you want a commercial product
-
-1. **Rename** — “ListingForge” is already used by other live products in the same space. Choose a distinctive name and clear domains / trademarks.
-2. **Real accounts + authorization** — per-user isolation, not a shared SQLite file.
-3. **Managed database** (PostgreSQL) with migrations and backups.
-4. **Stripe + real entitlements** — Checkout, webhooks, per-plan limits.
-5. **Marketplace-specific adapters** with current official rules for Etsy, Amazon, Shopify.
-6. **CI, tests, pinned deploys, monitoring**.
-7. **Legal pages** — privacy, terms, acceptable use, disclosure that output is a draft.
-
-Until those are done, treat this as a private / self-hosted tool, not a public paid SaaS.
-
----
-
-## How to run
-
-```bash
-pip install -r requirements.txt
-streamlit run app.py
-```
-
-Optional password gate:
-
-```bash
-export LISTINGFORGE_REQUIRE_AUTH=true
-export LISTINGFORGE_PASSWORD=your-secret
-```
-
----
-
-## Ownership
-
-MIT licensed. You own the code.
-""")
-
-st.info("All generated content is a draft. Verify every claim against your actual product before publishing.")
+st.divider()
+st.subheader("How billing state is applied")
+st.markdown(
+    "- Checkout uses Stripe-hosted subscription Checkout with dynamic payment methods.\n"
+    "- Signed, idempotent webhooks grant, change, or remove plan entitlements.\n"
+    "- Active and trialing subscriptions receive paid limits; other statuses fail closed to Free.\n"
+    "- The Stripe-hosted Customer Portal handles payment methods and cancellation."
+)
+st.caption(
+    "Tax and refund obligations depend on the operator's registrations and jurisdiction; "
+    "TrueDraft does not claim Stripe Tax is enabled automatically."
+)

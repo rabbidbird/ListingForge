@@ -17,3 +17,15 @@ data/usage.json
 dist/
 build/
 *.egg-info/
+.env
+.env.*
+!.env.example
+config/credentials.yaml
+*.pem
+*.key
+*.crt
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.mypy_cache/

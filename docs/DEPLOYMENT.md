@@ -1,51 +1,16 @@
-# Deployment Guide – ListingForge
+# Deployment notes
 
-## 1. Streamlit Community Cloud (easiest, free)
+Railway is the primary supported production target. Follow the 12-step runbook in the root [README](../README.md#railway-production-runbook-12-steps); it is the canonical source for environment variables, PostgreSQL, Stripe webhooks, the Customer Portal, custom domains, and the live smoke sequence.
 
-1. Push this repo to GitHub (already done).
-2. Go to https://share.streamlit.io
-3. New app → select `rabbidbird/ListingForge` → Main file `app.py`
-4. (Optional) Add secrets in the dashboard:
-   ```
-   OPENAI_API_KEY = "sk-..."
-   # or
-   XAI_API_KEY = "xai-..."
-   OPENAI_BASE_URL = "https://api.x.ai/v1"
-   ```
-5. Deploy. Your app is live in ~2 minutes.
+## Container contract
 
-## 2. Railway / Render / Fly.io
+- External port: `$PORT` (default `8080`)
+- Health check: `GET /healthz`
+- Stripe webhook: `POST /webhooks/stripe`
+- Startup migration: `python -m core.migrate` → `alembic upgrade head`
+- Processes behind nginx: FastAPI on `127.0.0.1:8000`, Streamlit on `127.0.0.1:8501`
+- Runtime user: non-root UID/GID `10001`
 
-- Connect the GitHub repo.
-- Build command: `pip install -r requirements.txt`
-- Start command: `streamlit run app.py --server.port $PORT --server.address 0.0.0.0`
-- Add environment variables for any API keys.
+The health endpoint checks the migrated `users` table, not merely process liveness. A container with an unreachable or unmigrated database stays unhealthy.
 
-## 3. Docker
-
-```bash
-docker build -t listingforge .
-docker run -p 8501:8501 -e OPENAI_API_KEY=sk-... listingforge
-```
-
-## 4. Adding Authentication (recommended before charging)
-
-1. Install already in requirements: `streamlit-authenticator`
-2. Create `config/credentials.yaml` from the example.
-3. In `app.py` or a new `auth.py`, initialize the authenticator and gate the pages.
-4. Example snippet is provided in the codebase comments / future `core/auth.py`.
-
-## 5. Adding Stripe (for paid plans)
-
-Recommended flow:
-- Free tier: 5 generations / day (track in SQLite or Redis)
-- Paid: Stripe Checkout → webhook updates user plan in DB
-- Use `stripe` Python package + a simple `users` table.
-
-High-level steps:
-1. Create products/prices in Stripe dashboard.
-2. Add Checkout button on the Pricing page.
-3. Webhook endpoint (can be a separate FastAPI/Flask micro-service or Streamlit + ngrok for testing).
-4. Store `stripe_customer_id` and `plan` on the user.
-
-This keeps the current pure-Streamlit architecture simple while allowing real monetization.
+Streamlit Community Cloud is not a supported paid-production target because this architecture needs a durable PostgreSQL database, a same-origin auth/webhook edge, and persistent secret-backed sessions. It may be adapted as a private UI demo only, without billing claims.
