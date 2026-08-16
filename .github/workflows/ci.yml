@@ -30,7 +30,7 @@ jobs:
           ruff format --check .
           ruff check .
       - name: Test
-        run: pytest
+        run: python -m pytest
       - name: Import and health smoke
         run: python -m scripts.smoke
 
