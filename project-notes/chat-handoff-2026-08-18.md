@@ -39,3 +39,11 @@ I completed a ship-readiness pass focused on:
 1. Add real Stripe checkout integration in pricing UI (Create Checkout Session button/route).
 2. Add/validate production webhook endpoint and replay-safe event processing.
 3. Add DB backup + recovery workflow for `data/listings.db` and optional migration path to managed Postgres.
+## 2026-08-18 (Follow-up)
+Commit: b86b506
+- Added functional Stripe checkout initiation to Pricing page (`pages/5_About_Pricing.py`):
+  - Added `create_checkout_session` flow with environment-driven success/cancel URLs
+  - Adds plan-specific checkout buttons when Stripe is configured
+  - Graceful messaging when required env vars or price IDs are missing
+- Added required callback URL settings to `.env.example` and `README.md`
+- Updated deployment guidance with exact Stripe env vars in `docs/DEPLOYMENT.md`
