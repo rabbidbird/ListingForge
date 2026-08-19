@@ -5,7 +5,13 @@ from __future__ import annotations
 import streamlit as st
 
 from core.auth import streamlit_current_user
-from core.ui import configure_page, draft_banner, heuristic_notice, render_sidebar
+from core.ui import (
+    configure_page,
+    draft_banner,
+    heuristic_notice,
+    render_quota_notice,
+    render_sidebar,
+)
 from core.usage import get_usage
 
 configure_page("Home", "✍️")
@@ -35,6 +41,7 @@ else:
     first.metric("Plan", str(usage["plan"]).title())
     second.metric("Today (UTC)", f"{usage['daily']} / {usage['daily_limit']}")
     third.metric("This month (UTC)", f"{usage['monthly']} / {usage['monthly_limit']}")
+    render_quota_notice(usage)
     left, right, _ = st.columns([1, 1, 2])
     with left:
         if st.button("Create one draft", type="primary", use_container_width=True):

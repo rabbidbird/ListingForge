@@ -15,6 +15,7 @@ from core.ui import (
     copy_button,
     draft_banner,
     heuristic_notice,
+    render_quota_notice,
     render_sidebar,
     safe_filename,
 )
@@ -32,6 +33,7 @@ st.caption(
     f"{str(usage['plan']).title()} plan: {usage['daily_remaining']} remaining today and "
     f"{usage['monthly_remaining']} this month (UTC)."
 )
+render_quota_notice(usage)
 
 llm_ready = is_llm_available()
 if llm_ready:
@@ -68,7 +70,10 @@ with st.form("listing_form", clear_on_submit=False):
             "Use deterministic template mode", value=not llm_ready, disabled=not llm_ready
         )
     submitted = st.form_submit_button(
-        "Generate fact-locked draft", type="primary", use_container_width=True
+        "Generate fact-locked draft",
+        type="primary",
+        use_container_width=True,
+        disabled=not usage["can_generate"],
     )
 
 if submitted:
@@ -92,7 +97,11 @@ if submitted:
             "result": result,
         }
         st.success("Draft created and saved to your private history.")
-    except (GenerationInputError, UsageLimitError) as exc:
+    except UsageLimitError as exc:
+        st.error(str(exc))
+        if exc.code in {"daily_limit", "monthly_limit"}:
+            st.page_link("pages/5_About_Pricing.py", label="Upgrade to raise this limit", icon="💳")
+    except GenerationInputError as exc:
         st.error(str(exc))
     except Exception:
         st.error("The draft could not be generated. Your usage reservation was released.")

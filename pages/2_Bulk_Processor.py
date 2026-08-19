@@ -16,6 +16,7 @@ from core.ui import (
     configure_page,
     confirm_before_export,
     draft_banner,
+    render_quota_notice,
     render_sidebar,
 )
 from core.usage import UsageLimitError, assert_bulk_job_allowed, get_usage
@@ -33,6 +34,7 @@ st.caption(
     f"{str(usage['plan']).title()} jobs are capped at {row_cap} rows. Each successful row "
     "uses one generation; invalid rows are reported without stopping the job."
 )
+render_quota_notice(usage)
 st.code(
     "product_name,primary_keyword,category,material,audience,features,extra_keywords,platform",
     language=None,
@@ -94,12 +96,22 @@ if uploaded is not None:
                     f"This file has more than your per-job cap. This run can process at most {row_cap} rows."
                 )
 
-            if st.button("Generate CSV drafts", type="primary"):
+            if st.button(
+                "Generate CSV drafts",
+                type="primary",
+                disabled=not usage["can_generate"],
+            ):
                 validated = validate_csv_rows(frame, limit=int(selected_count))
                 try:
                     assert_bulk_job_allowed(user.id, len(validated))
                 except UsageLimitError as exc:
                     st.error(str(exc))
+                    if exc.code == "bulk_cap":
+                        st.page_link(
+                            "pages/5_About_Pricing.py",
+                            label="Upgrade to raise the bulk-row cap",
+                            icon="💳",
+                        )
                 else:
                     results: list[dict] = []
                     errors: list[dict[str, object]] = []

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
+from typing import Any
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -21,6 +22,38 @@ def configure_page(title: str, icon: str) -> None:
         layout="wide",
         initial_sidebar_state="expanded",
     )
+
+
+def render_quota_notice(usage: dict[str, Any]) -> None:
+    """Explain failed payments and hard caps without inventing paid entitlements."""
+    status = str(usage.get("status") or "free")
+    if usage.get("payment_failed"):
+        st.error(
+            "A payment is past due, so Free limits apply. Open Plans & Billing and use the "
+            "Stripe Customer Portal to update the payment method."
+        )
+        return
+    if status == "incomplete":
+        st.warning(
+            "Checkout payment is still incomplete. Free limits apply until Stripe confirms "
+            "payment and the webhook updates this account."
+        )
+        return
+    if status == "canceled":
+        st.info(
+            "The paid subscription is canceled. Free limits apply. Start a new plan from "
+            "Plans & Billing if you want paid quotas again."
+        )
+        return
+    if not usage.get("can_generate"):
+        plan = str(usage.get("plan") or "free").title()
+        st.warning(
+            f"{plan} generation limit reached "
+            f"({usage['daily']}/{usage['daily_limit']} today, "
+            f"{usage['monthly']}/{usage['monthly_limit']} this month, UTC). "
+            "Upgrade on Plans & Billing or wait for the next UTC period."
+        )
+        st.page_link("pages/5_About_Pricing.py", label="View plans and upgrade", icon="💳")
 
 
 def render_sidebar(user: User | None = None) -> None:
@@ -43,6 +76,12 @@ def render_sidebar(user: User | None = None) -> None:
                 f"{str(usage['plan']).title()} · {usage['daily']}/{usage['daily_limit']} today · "
                 f"{usage['monthly']}/{usage['monthly_limit']} this month (UTC)"
             )
+            if usage.get("payment_failed"):
+                st.caption("Payment past due · Free limits")
+                st.page_link("pages/5_About_Pricing.py", label="Update billing", icon="💳")
+            elif not usage.get("can_generate"):
+                st.caption("Generation limit reached")
+                st.page_link("pages/5_About_Pricing.py", label="Upgrade plan", icon="💳")
             render_account_sidebar(user)
 
 
