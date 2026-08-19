@@ -10,7 +10,13 @@ from sqlalchemy.orm import Session
 
 from .database import session_scope
 from .models import Subscription, UsageEvent, User, utcnow
-from .plans import ACTIVE_SUBSCRIPTION_STATUSES, PLANS, get_plan_policy
+from .plans import (
+    ACTIVE_SUBSCRIPTION_STATUSES,
+    FAILED_PAYMENT_STATUSES,
+    PLANS,
+    get_plan_policy,
+    subscription_must_use_portal,
+)
 
 FREE_DAILY_LIMIT = PLANS["free"].daily_generations
 FREE_MONTHLY_LIMIT = PLANS["free"].monthly_generations
@@ -36,8 +42,12 @@ def _countable(now: datetime):
     )
 
 
+def _subscription_for(session, user_id: uuid.UUID) -> Subscription | None:
+    return session.scalar(select(Subscription).where(Subscription.user_id == user_id))
+
+
 def _effective_plan(session, user_id: uuid.UUID) -> str:
-    subscription = session.scalar(select(Subscription).where(Subscription.user_id == user_id))
+    subscription = _subscription_for(session, user_id)
     if (
         subscription is not None
         and subscription.plan in PLANS
@@ -162,8 +172,16 @@ def get_usage(user_id: uuid.UUID, *, now: datetime | None = None) -> dict[str, o
     now = now or utcnow()
     day_start, month_start, _ = _period_starts(now)
     with session_scope() as session:
+        subscription = _subscription_for(session, user_id)
         plan = _effective_plan(session, user_id)
         policy = get_plan_policy(plan)
+        status = subscription.status if subscription is not None else "free"
+        stored_plan = subscription.plan if subscription is not None else "free"
+        period_end = (
+            subscription.current_period_end.isoformat()
+            if subscription is not None and subscription.current_period_end is not None
+            else None
+        )
         base = [
             UsageEvent.user_id == user_id,
             UsageEvent.kind == "generation",
@@ -187,6 +205,9 @@ def get_usage(user_id: uuid.UUID, *, now: datetime | None = None) -> dict[str, o
         )
         return {
             "plan": plan,
+            "stored_plan": stored_plan,
+            "status": status,
+            "period_end": period_end,
             "daily": daily,
             "monthly": monthly,
             "daily_limit": policy.daily_generations,
@@ -197,6 +218,14 @@ def get_usage(user_id: uuid.UUID, *, now: datetime | None = None) -> dict[str, o
             and monthly < policy.monthly_generations,
             "bulk_rows_per_job": policy.bulk_rows_per_job,
             "daily_llm_limit": policy.daily_llm_generations,
+            "has_stripe_customer": bool(
+                subscription is not None and subscription.stripe_customer_id
+            ),
+            "manage_in_portal": subscription_must_use_portal(
+                status,
+                subscription.stripe_subscription_id if subscription is not None else None,
+            ),
+            "payment_failed": status in FAILED_PAYMENT_STATUSES,
         }
 
 

@@ -24,8 +24,18 @@ PLANS: dict[str, PlanPolicy] = {
 }
 
 PAID_PLANS = ("starter", "pro", "agency")
-ACTIVE_SUBSCRIPTION_STATUSES = {"active", "trialing"}
+ACTIVE_SUBSCRIPTION_STATUSES = frozenset({"active", "trialing"})
+# Existing Stripe subscriptions that must be changed in the Customer Portal,
+# not by starting a second Checkout session.
+PORTAL_MANAGED_STATUSES = frozenset(
+    {"active", "trialing", "past_due", "unpaid", "incomplete", "paused"}
+)
+FAILED_PAYMENT_STATUSES = frozenset({"past_due", "unpaid"})
 
 
 def get_plan_policy(plan: str) -> PlanPolicy:
     return PLANS.get(plan, PLANS["free"])
+
+
+def subscription_must_use_portal(status: str | None, stripe_subscription_id: str | None) -> bool:
+    return bool(stripe_subscription_id) and status in PORTAL_MANAGED_STATUSES
