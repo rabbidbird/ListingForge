@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.0.4 land-as-main commands — 2026-08-19
+
+- `docs/MERGE_STRATEGY.md` now has the two safe landing commands (force-point `main` at this tip, or `merge -s ours` **while on this branch** so GitHub Merge works). It states that `-s ours` on `main` would keep the guest/SQLite tree.
+- README Railway runbook no longer says to create live Stripe Prices first. Test-mode first, live switch after the Checkout cycle, matching `SHIP_CHECKLIST.md`.
+
 ## v1.0.3 operator fail-closed defaults — 2026-08-19
 
 - The production image now defaults to `ENV=production`, so a Railway deploy that forgets `ENV` fails closed instead of serving SQLite with the documented session secret. Compose still overrides to `development`.

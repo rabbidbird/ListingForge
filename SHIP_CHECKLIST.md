@@ -26,7 +26,7 @@ See [docs/MERGE_STRATEGY.md](docs/MERGE_STRATEGY.md).
 
 Use **test-mode Stripe first**. Do not point live Price IDs and a live key at a public domain until step 10.
 
-1. Land `agent/prepare-truedraft-v1` as `main`. Do **not** merge current `main`'s guest/SQLite commits and do **not** click “Update branch” on PR #1 if that pulls them in.
+1. Land `agent/prepare-truedraft-v1` as `main` using the exact commands in [docs/MERGE_STRATEGY.md](docs/MERGE_STRATEGY.md). The GitHub Merge button stays blocked while the PR is dirty; that is expected. Do **not** click “Update branch”.
 2. Create the Railway project from this repo. Add Railway PostgreSQL and expose `DATABASE_URL`.
 3. Set production variables. For the first deploy, Stripe values may be **test-mode** (`rk_test_...` / `sk_test_...`, test `price_...`, test `whsec_...`). Still set `ENV=production`, a unique `SESSION_SECRET`, `SESSION_COOKIE_SECURE=true`, and a temporary `PUBLIC_BASE_URL` of the Railway HTTPS origin.
 4. Deploy. `/healthz` must return ok. If the container will not start, read the boot logs — production fail-closed refuses SQLite, documented secrets, and localhost URLs.

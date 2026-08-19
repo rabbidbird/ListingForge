@@ -67,19 +67,25 @@ On Windows, use `.venv\Scripts\python.exe` and `.venv\Scripts\pip.exe`.
 
 ## Railway production runbook (12 steps)
 
-1. Fork this repository and create a Railway project from the fork. Railway will use `railway.toml` and the root `Dockerfile`.
+Do this **after** landing `agent/prepare-truedraft-v1` as `main`
+([docs/MERGE_STRATEGY.md](docs/MERGE_STRATEGY.md)). Use **test-mode Stripe
+first**. The numbered order in [SHIP_CHECKLIST.md](SHIP_CHECKLIST.md) is
+authoritative if anything here disagrees.
+
+1. Create a Railway project from the repository. Railway will use `railway.toml` and the root `Dockerfile`.
 2. Add a Railway PostgreSQL service and expose its `DATABASE_URL` to the TrueDraft service.
-3. In Stripe live mode, create monthly recurring USD Prices matching the displayed plan copy: Starter $12, Pro $29, and Agency $79. Keep the resulting `price_...` IDs; if currency or prices change, update `core/plans.py` copy before deployment.
-4. Create a least-privilege Stripe restricted API key for the Checkout, Customer, Subscription, and Billing Portal operations used here. Do not put keys in Git.
-5. Set the initial production variables from `.env.example`: `ENV=production` (already the image default), `DATABASE_URL`, the Railway HTTPS origin as `PUBLIC_BASE_URL`, a 32+ character `SESSION_SECRET`, `SESSION_COOKIE_SECURE=true`, `PORT=8080`, and Stripe credentials. For the first deploy, Stripe values may be test-mode. Billing buttons stay disabled until the signing secret is added. A container started without production variables fails closed instead of serving a local SQLite demo.
+3. In Stripe **test** mode, create monthly recurring USD Prices matching the displayed plan copy: Starter $12, Pro $29, and Agency $79. Copy the `price_...` IDs (never `prod_...`). Create live Prices later, at the live switch, only after the test-mode Checkout cycle passes.
+4. Create a least-privilege Stripe restricted API key for the Checkout, Customer, Subscription, and Billing Portal operations used here. Start with `rk_test_...` / `sk_test_...`. Do not put keys in Git.
+5. Set the initial production variables from `.env.example`: `ENV=production` (already the image default), `DATABASE_URL`, the Railway HTTPS origin as `PUBLIC_BASE_URL`, a 32+ character `SESSION_SECRET`, `SESSION_COOKIE_SECURE=true`, `PORT=8080`, and the **test-mode** Stripe credentials. Billing buttons stay disabled until the signing secret is added. A container started without production variables fails closed instead of serving a local SQLite demo.
 6. Deploy. Container startup runs `alembic upgrade head`; `/healthz` becomes healthy only after the migrated database is reachable.
 7. Add the Railway custom domain, point DNS as Railway instructs, then set `PUBLIC_BASE_URL=https://YOUR_DOMAIN` and redeploy.
-8. In Stripe Workbench, add `https://YOUR_DOMAIN/webhooks/stripe` and subscribe at least `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `customer.subscription.created`, `customer.subscription.updated`, and `customer.subscription.deleted`. Copy its `whsec_...` value to `STRIPE_WEBHOOK_SECRET` and redeploy. Recommended extras: `invoice.payment_failed`, `invoice.paid`, `checkout.session.async_payment_failed`, `checkout.session.expired`.
-9. Enable and configure the Stripe Customer Portal for subscription changes, cancellation, and payment-method management. Dynamic payment methods are controlled in Stripe; the code intentionally does not hard-code `payment_method_types`. Limit customers to one subscription in the Stripe dashboard so a second Checkout cannot be completed accidentally.
-10. Replace `{{OPERATOR_LEGAL_NAME}}`, `{{CONTACT_EMAIL}}`, and `{{JURISDICTION}}` in `pages/6_Legal.py`.
-11. Run `ENV=production python -m scripts.launch_check` against the production variable set. Follow the printed `next:` line. The public-traffic gate will stay blocked until legal placeholders are gone; a test-mode Stripe key is a warning. Then run the signup → template draft → history smoke, then a Stripe **test-mode** Checkout/webhook/portal cycle. Only after that switch Stripe variables to live mode and re-run launch_check until it prints `public-traffic gate: pass` and exits 0. The exact order is in [SHIP_CHECKLIST.md](SHIP_CHECKLIST.md).
-12. Require the GitHub Actions `test` and `container-smoke` jobs on the default branch, then release.
+8. In Stripe **test** Workbench, add `https://YOUR_DOMAIN/webhooks/stripe` and subscribe at least `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `customer.subscription.created`, `customer.subscription.updated`, and `customer.subscription.deleted`. Copy its `whsec_...` value to `STRIPE_WEBHOOK_SECRET` and redeploy. Recommended extras: `invoice.payment_failed`, `invoice.paid`, `checkout.session.async_payment_failed`, `checkout.session.expired`.
+9. Enable the Stripe Customer Portal (test mode) for subscription changes, cancellation, and payment-method management. Limit customers to one subscription so a second Checkout cannot be completed accidentally.
+10. Replace `{{OPERATOR_LEGAL_NAME}}`, `{{CONTACT_EMAIL}}`, and `{{JURISDICTION}}` in `pages/6_Legal.py` after legal review.
+11. Run `ENV=production python -m scripts.launch_check` against the production variable set. Follow the printed `next:` line and the printed `verify:` sequence: signup → template draft → history, then test-mode Checkout → webhook → portal. Expect a test-mode key **warning** and a blocked public-traffic gate until legal placeholders are gone. Then switch Stripe variables to **live** (`rk_live_...`, live `price_...`, live `whsec_...`), redeploy, and re-run launch_check until it prints `public-traffic gate: pass` and exits 0.
+12. Require the GitHub Actions `test` and `container-smoke` jobs on the default branch, then accept paid public traffic.
 
+Do not enable Stripe automatic tax unless the operator has the registrations required for Stripe to calculate and collect tax. Use separate Stripe keys for test and live environments.
 Do not enable Stripe automatic tax unless the operator has the registrations required for Stripe to calculate and collect tax. Use separate Stripe keys for test and live environments.
 
 ## Configuration

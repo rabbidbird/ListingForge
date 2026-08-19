@@ -19,40 +19,68 @@ Merge-base is `99198bc`. Unique `main` commits after that:
 
 ## Do not
 
-- Click **Update branch** on PR #1. GitHub reports the PR dirty because `main` moved after the PR base; that is expected. Updating the branch is how the guest/SQLite model gets mixed in.
+- Click **Update branch** on PR #1. GitHub reports the PR dirty because `main`
+  moved after the PR base; that is expected. The Merge button stays blocked.
+  Updating the branch is how the guest/SQLite model gets mixed in.
 - Rebase this branch onto current `main` and accept theirs.
 - Cherry-pick `d8fd1f6` or `b86b506`.
 - Reintroduce `LISTINGFORGE_SKIP_AUTH`, `TRUEDRAFT_SKIP_AUTH`,
   `LISTINGFORGE_REQUIRE_AUTH`, `LISTINGFORGE_USER_ID`, `guest-*` IDs,
   `data/listings.db`, `STRIPE_SUCCESS_URL`, or fail-open Price mapping.
+- Run `git merge -s ours` while checked out on `main`. That keeps the
+  guest/SQLite tree. `-s ours` keeps *the branch you are on*.
 
 Those behaviors would let unauthenticated traffic use the product, mix history,
 bypass Terms, claim unlimited paid plans, or grant entitlements from
 attacker-controlled Checkout metadata.
 
-## Recommended landing sequence
+## Land this branch as `main`
 
-1. Keep PR #1 as the integration vehicle. Leave it draft until
-   [SHIP_CHECKLIST.md](../SHIP_CHECKLIST.md) is understood; the four remaining
-   items are operator-owned and are not solved by merging `main`.
-2. Merge **this branch into `main`**, not the reverse. Preferred options, in
-   order:
-   - GitHub merge (create a merge commit or squash) **after** changing the PR
-     base is unnecessary if GitHub is set to merge the paid branch onto `main`
-     with this branch winning every conflict.
-   - Operator admin reset: once reviewed, point `main` at this branch tip.
-   - If GitHub reports the PR dirty: update by merging with `-X ours` for
-     product files, or recreate the PR against the old merge-base tag and land
-     it, then fast-forward `main`.
-3. After landing, treat `d8fd1f6` / `b86b506` as abandoned local-demo history.
-   Optionally keep `70735b1`'s handoff file as an archive note that says the
-   guest/SQLite path is superseded — do not restore its recommendations.
-4. Checkout UX from `b86b506` is already superseded by
-   `pages/5_About_Pricing.py` on this branch (plan buttons, portal, webhook
-   return copy). Do not take main's button code.
-5. Launch only after `ENV=production python -m scripts.launch_check` exits 0
-   on the production environment. That check also flags leftover
-   `LISTINGFORGE_*` / skip-auth variables.
+Pick **one**. Do not click Update branch first.
+
+### Option A — preferred: point `main` at this tip
+
+Requires permission to force-push `main`. The guest/SQLite commits remain in
+git history but are no longer on `main`.
+
+```bash
+git fetch origin
+git checkout main
+git reset --hard origin/agent/prepare-truedraft-v1
+git push --force-with-lease origin main
+```
+
+GitHub usually closes PR #1 as merged once `main` contains those commits.
+
+### Option B — keep GitHub Merge, discard `main`'s tree
+
+Use this if `main` is protected against force-push. Merge `main` with
+strategy **ours while on the paid branch** so history links and the tree stays
+TrueDraft. Then the PR is no longer dirty and GitHub Merge is safe.
+
+```bash
+git fetch origin
+git checkout agent/prepare-truedraft-v1
+git merge -s ours origin/main -m "Keep paid TrueDraft v1; discard guest/SQLite main line"
+git push origin agent/prepare-truedraft-v1
+```
+
+Then merge PR #1 in the GitHub UI (merge commit or squash). Confirm the
+resulting `main` tree still has `core/auth.py`, Alembic, and
+`pages/5_About_Pricing.py`, and does **not** have `data/listings.db` or
+`LISTINGFORGE_SKIP_AUTH`.
+
+### After landing
+
+1. Treat `d8fd1f6` / `b86b506` as abandoned local-demo history. Optionally
+   keep `70735b1`'s handoff file as an archive note that says the guest/SQLite
+   path is superseded — do not restore its recommendations.
+2. Checkout UX from `b86b506` is already superseded by
+   `pages/5_About_Pricing.py` on this branch. Do not take main's button code.
+3. Continue [SHIP_CHECKLIST.md](../SHIP_CHECKLIST.md) from step 2 (Railway).
+   Do not accept paid public traffic until
+   `ENV=production python -m scripts.launch_check` prints
+   `public-traffic gate: pass` against the live variable set.
 
 ## If a future local-demo mode is wanted
 
