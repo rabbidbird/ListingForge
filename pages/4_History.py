@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from core.auth import user_id
 from core.utils import get_history, get_listing_by_id, delete_listing, export_to_dataframe
 import json
 
@@ -15,7 +16,8 @@ st.set_page_config(page_title="History | ListingForge", page_icon="🕘", layout
 st.title("🕘 Generation History")
 st.caption("All listings you generate are automatically saved locally (SQLite).")
 
-history = get_history(limit=100)
+viewer_user_id = user_id()
+history = get_history(limit=100, user_id=viewer_user_id)
 
 if not history:
     st.info("No listings generated yet. Go to the Optimizer and create your first one.")
@@ -51,7 +53,7 @@ selected_id = st.number_input("Listing ID", min_value=1, value=history[0]["id"] 
 col1, col2 = st.columns(2)
 with col1:
     if st.button("🔍 View Full Listing"):
-        full = get_listing_by_id(int(selected_id))
+        full = get_listing_by_id(int(selected_id), user_id=viewer_user_id)
         if full:
             st.subheader(full["best_title"])
             st.write(f"**Score:** {full['scores']['overall']['overall']} ({full['scores']['overall']['grade']})")
@@ -63,7 +65,7 @@ with col1:
 
 with col2:
     if st.button("🗑️ Delete Listing", type="secondary"):
-        if delete_listing(int(selected_id)):
+        if delete_listing(int(selected_id), user_id=viewer_user_id):
             st.success("Deleted.")
             st.rerun()
         else:
@@ -73,7 +75,7 @@ with col2:
 if st.button("⬇️ Export entire history as CSV"):
     full_results = []
     for h in history:
-        full = get_listing_by_id(h["id"])
+        full = get_listing_by_id(h["id"], user_id=viewer_user_id)
         if full:
             full_results.append(full)
     if full_results:

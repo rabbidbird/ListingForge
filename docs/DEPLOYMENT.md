@@ -28,14 +28,16 @@ docker build -t listingforge .
 docker run -p 8501:8501 -e OPENAI_API_KEY=sk-... listingforge
 ```
 
-## 4. Adding Authentication (recommended before charging)
+## 4. Adding Authentication for launch
 
-1. Install already in requirements: `streamlit-authenticator`
-2. Create `config/credentials.yaml` from the example.
-3. In `app.py` or a new `auth.py`, initialize the authenticator and gate the pages.
-4. Example snippet is provided in the codebase comments / future `core/auth.py`.
+1. Create `config/credentials.yaml` from `config/credentials.yaml.example`.
+2. Set `LISTINGFORGE_REQUIRE_AUTH=true`.
+3. Keep `LISTINGFORGE_SKIP_AUTH` or `TRUEDRAFT_SKIP_AUTH=true` only for local/dev flows.
+4. Route your pages through `core.auth` helpers for per-user onboarding.
+   - In non-auth mode, users are assigned a per-session `guest-*` ID by default unless `LISTINGFORGE_USER_ID` is set.
+5. Replace the local file-based session model with your production identity provider when ready.
 
-## 5. Adding Stripe (for paid plans)
+## 6. Adding Stripe (for paid plans)
 
 Recommended flow:
 - Free tier: 5 generations / day (track in SQLite or Redis)
@@ -44,8 +46,8 @@ Recommended flow:
 
 High-level steps:
 1. Create products/prices in Stripe dashboard.
-2. Add Checkout button on the Pricing page.
-3. Webhook endpoint (can be a separate FastAPI/Flask micro-service or Streamlit + ngrok for testing).
-4. Store `stripe_customer_id` and `plan` on the user.
+2. Enable checkout/session creation from your billing flow.
+3. Add webhook endpoint to `/webhook/stripe` in a production service and pass `user_id` in metadata.
+4. Store `stripe_customer_id`, `plan`, and last invoice metadata on the user.
 
 This keeps the current pure-Streamlit architecture simple while allowing real monetization.

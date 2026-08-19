@@ -9,6 +9,7 @@ import sys
 
 # Ensure core is importable
 sys.path.insert(0, str(Path(__file__).parent))
+from core.auth import auth_required, current_user, logout_button
 
 st.set_page_config(
     page_title="ListingForge – AI Listing Optimizer",
@@ -62,6 +63,14 @@ st.markdown("""
 with st.sidebar:
     st.markdown("## ⚡ ListingForge")
     st.caption("Professional listing optimizer for Etsy, Shopify & Amazon sellers")
+    st.markdown("---")
+    if auth_required():
+        current_user()
+        user_name = st.session_state.get("listingforge_name", "Signed in user")
+        st.markdown(f"**Account:** {user_name}")
+        logout_button()
+    else:
+        st.info("Auth disabled for this environment. Set LISTINGFORGE_REQUIRE_AUTH=true to enforce login.")
     st.markdown("---")
     st.markdown("### Quick Nav")
     st.page_link("app.py", label="Home", icon="🏠")

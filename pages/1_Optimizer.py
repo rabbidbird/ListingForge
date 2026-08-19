@@ -8,7 +8,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.generator import ListingGenerator
+from core.auth import user_id
 from core.utils import save_listing, export_to_dataframe
+from core.usage import get_usage, is_limit_reached, record_generation
 import json
 
 st.set_page_config(page_title="Optimizer | ListingForge", page_icon="✨", layout="wide")
@@ -24,6 +26,23 @@ else:
     st.info("🟡 Running on high-quality template engine (no API key required). Add OPENAI_API_KEY or XAI_API_KEY for real LLM output.")
 
 generator = ListingGenerator()
+active_user_id = user_id()
+usage = get_usage(active_user_id)
+if not usage["can_generate"]:
+    st.error("🚫 You’ve reached your listing generation limit.")
+    st.warning(
+        f"Plan: {usage['plan_label']} | Remaining: "
+        f"Daily {usage['daily_remaining'] if usage['daily_remaining'] is not None else 'unlimited'} / "
+        f"Monthly {usage['monthly_remaining'] if usage['monthly_remaining'] is not None else 'unlimited'}"
+    )
+    st.info("Upgrade from the Pricing page to increase limits.")
+    st.stop()
+
+st.caption(
+    f"Plan: **{usage['plan_label']}** • "
+    f"Remaining today: {usage['daily_remaining'] if usage['daily_remaining'] is not None else 'unlimited'} • "
+    f"Remaining this month: {usage['monthly_remaining'] if usage['monthly_remaining'] is not None else 'unlimited'}"
+)
 
 with st.form("listing_form", clear_on_submit=False):
     col_a, col_b = st.columns(2)
@@ -83,13 +102,20 @@ if submitted:
             platform=platform,
             force_template=force_template,
         )
+        if is_limit_reached(active_user_id):
+            st.error("Limit reached while generating. Please upgrade to continue.")
+            st.stop()
+
+    usage = record_generation(active_user_id)
 
     # Save to history
-    listing_id = save_listing(result)
+    listing_id = save_listing(result, user_id=active_user_id)
     source = result["meta"].get("source", "template")
     model = result["meta"].get("model")
     source_msg = f"via **{source.upper()}**" + (f" ({model})" if model else "")
     st.success(f"Listing generated {source_msg} and saved to history (ID: {listing_id})")
+    if usage["remaining_total"] is not None:
+        st.info(f"Remaining quota: {usage['remaining_total']} generations.")
 
     # Overall score banner
     overall = result["scores"]["overall"]

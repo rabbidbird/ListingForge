@@ -1,10 +1,10 @@
 """
-Legal pages for TrueDraft
+Legal pages for ListingForge
 """
 
 import streamlit as st
 
-st.set_page_config(page_title="Legal | TrueDraft", page_icon="📜", layout="wide")
+st.set_page_config(page_title="Legal | ListingForge", page_icon="📜", layout="wide")
 
 st.title("Legal")
 
@@ -16,7 +16,7 @@ with tab1:
 
 **Last updated:** August 2026
 
-TrueDraft provides draft product listing text based on information you supply.
+ListingForge provides draft product listing text based on information you supply.
 
 ### 1. Draft nature of output
 All titles, descriptions, tags, and scores are **drafts**. You are solely responsible for verifying every claim, material, rating, shipping statement, and attribute against your actual product before publishing anywhere.
@@ -31,7 +31,7 @@ Free and paid plan limits are enforced per account. Abuse, sharing of credential
 Paid plans are billed via Stripe. Refunds are handled according to our refund policy (typically pro-rata within 14 days of first charge unless otherwise stated at checkout).
 
 ### 5. Limitation of liability
-TrueDraft is provided “as is.” We are not liable for marketplace penalties, rejected listings, or losses arising from content you publish.
+ListingForge is provided “as is.” We are not liable for marketplace penalties, rejected listings, or losses arising from content you publish.
 
 ### 6. Changes
 We may update these terms. Continued use after changes constitutes acceptance.

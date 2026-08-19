@@ -7,12 +7,14 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from core.auth import user_id
 from core.seo_scorer import SEOScorer
 
 st.set_page_config(page_title="SEO Analyzer | ListingForge", page_icon="📊", layout="wide")
 
 st.title("📊 SEO Listing Analyzer")
 st.caption("Paste any existing title, description, and tags to get an honest score and actionable feedback.")
+user_id()
 
 scorer = SEOScorer()
 

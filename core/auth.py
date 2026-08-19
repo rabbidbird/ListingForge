@@ -1,5 +1,5 @@
 """
-TrueDraft authentication using streamlit-authenticator.
+ListingForge authentication using streamlit-authenticator.
 Provides login, registration, and current-user helpers.
 For production, replace the YAML credential store with a proper user database.
 """
@@ -7,6 +7,7 @@ For production, replace the YAML credential store with a proper user database.
 from __future__ import annotations
 
 import os
+import uuid
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -17,6 +18,33 @@ from yaml.loader import SafeLoader
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "credentials.yaml"
 EXAMPLE_PATH = Path(__file__).parent.parent / "config" / "credentials.yaml.example"
+AUTH_TRUE = {"1", "true", "yes", "on"}
+ENV_USER_ID = "LISTINGFORGE_USER_ID"
+ENV_REQUIRE_AUTH = "LISTINGFORGE_REQUIRE_AUTH"
+ENV_SKIP_AUTH = ("LISTINGFORGE_SKIP_AUTH", "TRUEDRAFT_SKIP_AUTH")
+
+
+def _is_truthy(value: str) -> bool:
+    return bool(value and value.strip().lower() in AUTH_TRUE)
+
+
+def _get_default_local_user_id() -> str:
+    """Return a stable per-session local user id for demo/no-auth mode."""
+    if not auth_required() and "listingforge_user" in st.session_state:
+        return st.session_state["listingforge_user"]
+
+    if not auth_required():
+        configured = os.getenv(ENV_USER_ID, "").strip()
+        if configured:
+            return configured
+
+    return f"guest-{uuid.uuid4().hex[:12]}"
+
+
+def auth_required() -> bool:
+    if any(_is_truthy(os.getenv(name)) for name in ENV_SKIP_AUTH):
+        return False
+    return _is_truthy(os.getenv(ENV_REQUIRE_AUTH, "false"))
 
 
 def _ensure_config() -> dict:
@@ -24,7 +52,6 @@ def _ensure_config() -> dict:
     if not CONFIG_PATH.exists():
         if EXAMPLE_PATH.exists():
             text = EXAMPLE_PATH.read_text()
-            text = text.replace("listingforge", "truedraft").replace("ListingForge", "TrueDraft")
             CONFIG_PATH.write_text(text)
         else:
             CONFIG_PATH.write_text(
@@ -37,8 +64,8 @@ credentials:
       password: $2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW
 cookie:
   expiry_days: 30
-  key: truedraft_cookie_key_change_me_in_production
-  name: truedraft_auth
+  key: listingforge_cookie_key_change_me_in_production
+  name: listingforge_auth
 preauthorized:
   emails: []
 """.strip()
@@ -58,9 +85,9 @@ def get_authenticator() -> stauth.Authenticate:
 
 
 def require_login() -> Tuple[Optional[str], Optional[str]]:
-    if os.getenv("TRUEDRAFT_SKIP_AUTH", "").lower() in ("1", "true", "yes"):
-        st.session_state["truedraft_user"] = "local"
-        st.session_state["truedraft_name"] = "Local User"
+    if any(_is_truthy(os.getenv(name)) for name in ENV_SKIP_AUTH):
+        st.session_state["listingforge_user"] = "local"
+        st.session_state["listingforge_name"] = "Local User"
         return "Local User", "local"
 
     authenticator = get_authenticator()
@@ -80,17 +107,52 @@ def require_login() -> Tuple[Optional[str], Optional[str]]:
         st.info("Please log in. Default demo account: **demo** / **secret** (change in config/credentials.yaml)")
         st.stop()
 
-    st.session_state["truedraft_user"] = username
-    st.session_state["truedraft_name"] = name
+    st.session_state["listingforge_user"] = username
+    st.session_state["listingforge_name"] = name
     return name, username
 
 
+def require_user_if_enabled() -> Tuple[Optional[str], Optional[str]]:
+    if not auth_required():
+        if "listingforge_user" not in st.session_state:
+            st.session_state["listingforge_user"] = _get_default_local_user_id()
+            st.session_state["listingforge_name"] = st.session_state["listingforge_user"]
+        return st.session_state["listingforge_name"], st.session_state["listingforge_user"]
+    return require_login()
+
+
+def user_id(default: str = "anonymous") -> str:
+    if auth_required():
+        _, uid = require_login()
+        return uid or default
+    if "listingforge_user" not in st.session_state:
+        st.session_state["listingforge_user"] = _get_default_local_user_id()
+        st.session_state["listingforge_name"] = st.session_state["listingforge_user"]
+    return (
+        st.session_state.get("listingforge_user")
+        or st.session_state.get("truedraft_user")
+        or st.session_state.get("username")
+        or os.getenv(ENV_USER_ID, default)
+    )
+
+
 def current_user() -> str:
-    return st.session_state.get("truedraft_user") or st.session_state.get("username") or "anonymous"
+    if auth_required():
+        _, uid = require_login()
+        return uid or "anonymous"
+    if "listingforge_user" not in st.session_state:
+        st.session_state["listingforge_user"] = _get_default_local_user_id()
+        st.session_state["listingforge_name"] = st.session_state["listingforge_user"]
+    return (
+        st.session_state.get("listingforge_user")
+        or st.session_state.get("truedraft_user")
+        or st.session_state.get("username")
+        or os.getenv(ENV_USER_ID, "anonymous")
+    )
 
 
 def logout_button():
-    if os.getenv("TRUEDRAFT_SKIP_AUTH", "").lower() in ("1", "true", "yes"):
+    if any(_is_truthy(os.getenv(name)) for name in ENV_SKIP_AUTH):
         return
     try:
         authenticator = get_authenticator()

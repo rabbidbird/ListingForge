@@ -1,31 +1,26 @@
-# TrueDraft (v0.2)
+# ListingForge (v0.2)
 
-**Fact-locked draft generator for product listings — with accounts, plans, and Stripe-ready billing.**
-
-TrueDraft helps sellers create **draft** titles, descriptions, and tags from the facts they supply.  
-It does **not** invent materials, ratings, shipping claims, or other product attributes.
+AI-assisted product listing optimizer for Etsy, Shopify, and Amazon.
+Generates draft-friendly titles, descriptions, tags, and SEO checks from your input.
 
 ## Status
 
-Closer to paid launch than v0.1, but still requires:
+ListingForge is close to production-ready for controlled launches.
 
-- Final brand/domain/trademark clearance for “TrueDraft”
-- Production PostgreSQL (SQLite is fine for early users only)
-- Live Stripe price IDs + webhook endpoint
-- Operator legal entity + filled-in contact details on Legal pages
+- Local usage limits and plans are now enforced
+- Optional LLM generation (OpenAI / xAI compatible) is integrated
+- Billing symbols now map to actual plan metadata
+- CI scaffold and launch checklist are in progress
 
 ## Features
 
-- Fact-locked generation (template + optional LLM)
-- User accounts (streamlit-authenticator)
-- Per-user history and usage isolation
-- Free / Starter / Pro / Agency plan limits
-- Stripe Checkout skeleton
-- Bulk CSV mode
-- SEO checklist scores
-- Terms, Privacy, Acceptable Use pages
-- Docker (non-root, healthcheck)
-- Basic automated tests (`tests/test_fact_lock.py`)
+- Fact-locked template engine (no hallucinated product facts)
+- Optional LLM generation when an API key is configured
+- Single and bulk listing optimization
+- SEO scoring with per-section feedback
+- Local history in SQLite
+- Local usage tracking + plan configuration
+- Optional payment upgrade surfaces (Stripe-ready)
 
 ## Quick start
 
@@ -36,13 +31,23 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Default demo login: **demo** / **secret**  
-(Change in `config/credentials.yaml`)
-
-Skip auth for local solo use:
+### Env / secrets
 
 ```bash
-export TRUEDRAFT_SKIP_AUTH=true
+OPENAI_API_KEY=sk-...
+# or
+XAI_API_KEY=xai-...
+OPENAI_BASE_URL=https://api.x.ai/v1
+
+# Optional demo auth bypass
+LISTINGFORGE_SKIP_AUTH=true
+LISTINGFORGE_REQUIRE_AUTH=false
+LISTINGFORGE_USER_ID=local
+
+# Optional usage tuning
+LISTINGFORGE_DEFAULT_PLAN=free
+LISTINGFORGE_FREE_DAILY_LIMIT=8
+LISTINGFORGE_FREE_MONTHLY_LIMIT=40
 ```
 
 ## Stripe (optional)
@@ -55,7 +60,13 @@ export STRIPE_PRICE_PRO=price_...
 export STRIPE_PRICE_AGENCY=price_...
 ```
 
-Upgrade buttons appear on the Pricing page when configured.
+Upgrade buttons/links appear on `pages/5_About_Pricing.py` when Stripe is configured.
+
+## Notes
+
+`LISTINGFORGE_REQUIRE_AUTH=true` is intended for production launch. Keep it `false` during local demo/development.
+`LISTINGFORGE_SKIP_AUTH=true` and `TRUEDRAFT_SKIP_AUTH=true` are intended for local/dev only.
+When auth is disabled and `LISTINGFORGE_USER_ID` is not set, each browser session gets a generated guest user ID so usage/history remain isolated across sessions.
 
 ## License
 

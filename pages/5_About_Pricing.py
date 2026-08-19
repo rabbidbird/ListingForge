@@ -1,68 +1,99 @@
 """
-About & honest status for ListingForge v0.1
+About, pricing, and launch readiness for ListingForge
 """
 
 import streamlit as st
 
-st.set_page_config(page_title="About | ListingForge", page_icon="💎", layout="wide")
+from core.auth import user_id
+from core.usage import get_usage
+from core.billing import get_upgrade_options, stripe_enabled
+from core.usage import PLANS
 
-st.title("About ListingForge (v0.1 Alpha)")
 
-st.markdown("""
+st.set_page_config(page_title="About & Pricing | ListingForge", page_icon="💎", layout="wide")
+
+st.title("About ListingForge")
+
+viewer_user_id = user_id()
+usage = get_usage(viewer_user_id)
+st.markdown(
+    f"### Account status\n"
+    f"Current plan: **{usage['plan_label']}**  \n"
+    f"Today's usage: **{usage['daily']}** / {usage['daily_limit'] or 'unlimited'}  \n"
+    f"Monthly usage: **{usage['monthly']}** / {usage['monthly_limit'] or 'unlimited'}  \n"
+    f"Remaining this period: "
+    f"{usage['remaining_total'] if usage['remaining_total'] is not None else 'unlimited'}"
+)
+
+st.markdown(
+    """
 ## What this is
 
 ListingForge is a **self-hosted draft generator** for product titles, descriptions, and tags.
+It is designed to help you produce high-quality listing drafts that you can quickly review and edit before publishing.
 
-It is designed to help you start from the facts *you* provide, then produce a draft you must review and edit before publishing.
+### Current limits
 
-### Core rule
-**It does not invent product facts.**  
-Materials, ratings, shipping claims, “handmade”, certifications, stock status, and similar statements only appear if you supplied them.
+- Free: {free_daily} generations/day, {free_monthly} generations/month (local SQLite history)
+- Starter: {starter_daily} generations/day, {starter_monthly} generations/month
+- Pro / Agency: unlimited generation
 
----
+### Launch readiness checklist
 
-## Current limits (local free-tier style)
+1. [x] Local usage limits + plan metadata
+2. [x] SEO scoring + template + optional LLM backend
+3. [x] Global auth helpers and per-user usage/history isolation wired through `core.auth`
+4. [ ] Managed database + backups (PostgreSQL or equivalent)
+5. [ ] Production Stripe webhooks + reconciliation
+6. [ ] Marketplace-specific policy compliance checks
 
-- 8 generations per day  
-- 40 generations per month  
+This is functional for controlled launch and pilot traffic.
+""".format(
+        free_daily=PLANS["free"]["daily"],
+        free_monthly=PLANS["free"]["monthly"],
+        starter_daily=PLANS["starter"]["daily"],
+        starter_monthly=PLANS["starter"]["monthly"],
+    )
+)
 
-Tracked locally. Suitable for personal or single-user use.
+st.markdown("### Plans")
+if stripe_enabled():
+    st.success("Stripe is configured. Add a production checkout endpoint before launch.")
+else:
+    st.info("Stripe is not configured. Set STRIPE_* env vars when enabling paid plans.")
 
----
+for option in get_upgrade_options():
+    st.markdown(
+        f"- **{option['label']}** (`{option['plan']}`): "
+        f"{option['price']} — {option['desc']} "
+        f"(price_id: `{option['price_id'] or 'not set'}`)"
+    )
 
-## Recommended next steps if you want a commercial product
+st.markdown(
+    """
+### Billing behavior
 
-1. **Rename** — “ListingForge” is already used by other live products in the same space. Choose a distinctive name and clear domains / trademarks.
-2. **Real accounts + authorization** — per-user isolation, not a shared SQLite file.
-3. **Managed database** (PostgreSQL) with migrations and backups.
-4. **Stripe + real entitlements** — Checkout, webhooks, per-plan limits.
-5. **Marketplace-specific adapters** with current official rules for Etsy, Amazon, Shopify.
-6. **CI, tests, pinned deploys, monitoring**.
-7. **Legal pages** — privacy, terms, acceptable use, disclosure that output is a draft.
+Webhook events are expected to carry a `plan` in metadata or a known Stripe `price_id`.
+When a payment event is received, the user plan is updated in the local `usage_users` table.
+"""
+)
 
-Until those are done, treat this as a private / self-hosted tool, not a public paid SaaS.
-
----
-
-## How to run
+st.markdown(
+    """
+### Run locally
 
 ```bash
 pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Optional password gate:
+Optional single-tenant auth for early demos:
 
 ```bash
-export LISTINGFORGE_REQUIRE_AUTH=true
+export LISTINGFORGE_SKIP_AUTH=true
 export LISTINGFORGE_PASSWORD=your-secret
 ```
 
----
-
-## Ownership
-
-MIT licensed. You own the code.
-""")
-
-st.info("All generated content is a draft. Verify every claim against your actual product before publishing.")
+`LISTINGFORGE_USER_ID` can also be set for per-install usage tracking.
+"""
+)

@@ -9,7 +9,9 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.generator import ListingGenerator
+from core.auth import user_id
 from core.utils import save_listing, export_to_dataframe
+from core.usage import get_usage, is_limit_reached, record_generation
 
 st.set_page_config(page_title="Bulk Processor | ListingForge", page_icon="📦", layout="wide")
 
@@ -17,6 +19,22 @@ st.title("📦 Bulk Listing Processor")
 st.caption("Upload a CSV of products → get fully optimized titles, descriptions, tags, and scores back.")
 
 generator = ListingGenerator()
+active_user_id = user_id()
+
+
+def _display_limits(user_id: str):
+    usage = get_usage(user_id)
+    unlimited_daily = "unlimited" if usage["daily_limit"] is None else usage["daily_limit"]
+    unlimited_monthly = "unlimited" if usage["monthly_limit"] is None else usage["monthly_limit"]
+    remaining_daily = "unlimited" if usage["daily_remaining"] is None else usage["daily_remaining"]
+    remaining_monthly = "unlimited" if usage["monthly_remaining"] is None else usage["monthly_remaining"]
+    st.caption(
+        f"Plan: **{usage['plan_label']}** | "
+        f"Daily usage: {usage['daily']}/{unlimited_daily} • "
+        f"Monthly usage: {usage['monthly']}/{unlimited_monthly} • "
+        f"Remaining: {remaining_daily} today / {remaining_monthly} this month"
+    )
+    return usage
 
 st.markdown("### Expected CSV columns")
 st.code("product_name, primary_keyword, category, material, audience, features, extra_keywords, platform")
@@ -51,6 +69,13 @@ st.download_button("⬇️ Download sample CSV", data=sample_csv, file_name="lis
 st.markdown("---")
 
 uploaded = st.file_uploader("Upload your product CSV", type=["csv"])
+usage = get_usage(active_user_id)
+_display_limits(active_user_id)
+
+if not usage["can_generate"]:
+    st.error("🚫 You’ve reached your listing generation limit.")
+    st.info("Upgrade from Pricing to continue.")
+    st.stop()
 
 if uploaded:
     try:
@@ -72,6 +97,8 @@ if uploaded:
             df[col] = ""
 
     max_rows = st.slider("Process first N rows (for testing)", min_value=1, max_value=min(100, len(df)), value=min(10, len(df)))
+    if usage["remaining_total"] is not None:
+        max_rows = min(max_rows, usage["remaining_total"])
 
     if st.button("🚀 Process Bulk Listings", type="primary"):
         results = []
@@ -80,6 +107,10 @@ if uploaded:
 
         subset = df.head(max_rows)
         for idx, row in subset.iterrows():
+            if is_limit_reached(active_user_id):
+                status.text("Quota reached. Upgrade to continue.")
+                break
+
             status.text(f"Processing {idx+1}/{len(subset)}: {row['product_name'][:50]}...")
             features = [f.strip() for f in str(row.get("features", "")).split("|") if f.strip()]
             extras = [k.strip() for k in str(row.get("extra_keywords", "")).split(",") if k.strip()]
@@ -97,7 +128,8 @@ if uploaded:
                 extra_keywords=extras,
                 platform=platform,
             )
-            save_listing(result)
+            usage = record_generation(active_user_id)
+            save_listing(result, user_id=active_user_id)
             results.append(result)
             progress.progress((idx + 1) / len(subset))
 
