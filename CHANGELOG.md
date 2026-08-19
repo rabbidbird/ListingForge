@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.0.3 operator fail-closed defaults — 2026-08-19
+
+- The production image now defaults to `ENV=production`, so a Railway deploy that forgets `ENV` fails closed instead of serving SQLite with the documented session secret. Compose still overrides to `development`.
+- Streamlit telemetry and the developer toolbar are off (`.streamlit/config.toml` + supervisord flags). Uvicorn no longer sends a `Server` header.
+- `launch_check` prints the next operator action, flags Stripe Product IDs (`prod_...`) used as Price IDs, and prints the test-mode → live verification sequence in production.
+- `SHIP_CHECKLIST.md` is now an ordered test-mode → live runbook, including the required “limit customers to one subscription” Stripe setting.
+
 ## v1.0.2 pre-launch polish — 2026-08-19
 
 - `python -m scripts.launch_check` is now a structured pre-flight report: Postgres vs SQLite, secret class, public HTTPS host, cookie flag, individual Stripe fields, duplicate/placeholder Price IDs, legal placeholders, leftover `LISTINGFORGE_*` / skip-auth variables, and derived webhook/portal URLs. It never prints secrets. In `ENV=production` it exits 1 unless every blocker is gone.

@@ -19,7 +19,7 @@ Merge-base is `99198bc`. Unique `main` commits after that:
 
 ## Do not
 
-- Click **Update branch** on PR #1 if that rebases or merges current `main`.
+- Click **Update branch** on PR #1. GitHub reports the PR dirty because `main` moved after the PR base; that is expected. Updating the branch is how the guest/SQLite model gets mixed in.
 - Rebase this branch onto current `main` and accept theirs.
 - Cherry-pick `d8fd1f6` or `b86b506`.
 - Reintroduce `LISTINGFORGE_SKIP_AUTH`, `TRUEDRAFT_SKIP_AUTH`,

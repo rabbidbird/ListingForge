@@ -41,6 +41,51 @@ PLACEHOLDER_PRICE_IDS = frozenset(
         "price_xxx",
     }
 )
+NEXT_ACTION_HINTS = (
+    ("ENV is not production", "Set ENV=production on the production service."),
+    ("SQLite", "Attach Railway PostgreSQL and set DATABASE_URL to that instance."),
+    ("DATABASE_URL must point to PostgreSQL", "Set DATABASE_URL to the Railway PostgreSQL URL."),
+    (
+        "SESSION_SECRET",
+        "Set a unique 32+ character SESSION_SECRET that is not a documented example.",
+    ),
+    (
+        "PUBLIC_BASE_URL must use https",
+        "Set PUBLIC_BASE_URL to the final public https:// origin.",
+    ),
+    (
+        "not localhost",
+        "Set PUBLIC_BASE_URL to the public https:// origin, not localhost.",
+    ),
+    ("SESSION_COOKIE_SECURE", "Set SESSION_COOKIE_SECURE=true."),
+    (
+        "Stripe is incomplete",
+        "Create Stripe Prices and set STRIPE_API_KEY, STRIPE_WEBHOOK_SECRET, and all three STRIPE_PRICE_* values.",
+    ),
+    ("not unique", "Give Starter, Pro, and Agency each their own Stripe Price ID."),
+    (
+        "placeholders",
+        "Replace documented Price ID placeholders with real Stripe price_... IDs.",
+    ),
+    (
+        "Price ID (price_",
+        "Use a Stripe Price ID (price_...), not a Product ID (prod_...).",
+    ),
+    (
+        "Legal placeholders",
+        "Replace {{OPERATOR_LEGAL_NAME}}, {{CONTACT_EMAIL}}, and {{JURISDICTION}} in pages/6_Legal.py after legal review.",
+    ),
+    (
+        "Legacy main-branch",
+        "Unset LISTINGFORGE_*, TRUEDRAFT_SKIP_AUTH, STRIPE_SUCCESS_URL, and STRIPE_CANCEL_URL.",
+    ),
+)
+VERIFY_SEQUENCE = (
+    "1. signup → template draft → private history",
+    "2. test-mode Checkout → webhook applies plan → portal cancel/return",
+    "3. switch Stripe variables to live",
+    "4. re-run this command until public-traffic gate: pass",
+)
 
 
 def remaining_legal_placeholders() -> list[str]:
@@ -75,8 +120,29 @@ def _present(value: str) -> bool:
     return bool(value and value.strip())
 
 
+def next_operator_action(report: dict[str, Any]) -> str:
+    if report.get("config_error"):
+        return "Fix the production configuration error above, then re-run launch_check."
+    for blocker in report.get("blockers") or []:
+        for marker, action in NEXT_ACTION_HINTS:
+            if marker in blocker:
+                return action
+        return blocker
+    warnings = report.get("warnings") or []
+    if any("test-mode" in warning for warning in warnings):
+        return (
+            "Finish the test-mode Checkout cycle, then switch Stripe variables to live "
+            "and re-run launch_check."
+        )
+    if report.get("ready_for_public_traffic"):
+        return (
+            "Automated gates passed. Complete the live smoke in SHIP_CHECKLIST.md, "
+            "then accept paid public traffic."
+        )
+    return "Complete SHIP_CHECKLIST.md before accepting paid public traffic."
+
+
 def launch_report() -> dict[str, Any]:
-    config_error: str | None = None
     try:
         reset_settings_cache()
         settings = get_settings()
@@ -86,7 +152,7 @@ def launch_report() -> dict[str, Any]:
         blockers = [str(exc)]
         if remaining:
             blockers.append("Legal placeholders remain: " + ", ".join(remaining))
-        return {
+        report = {
             "environment": environment,
             "production": environment == "production",
             "config_error": str(exc),
@@ -98,6 +164,8 @@ def launch_report() -> dict[str, Any]:
             "checks": {},
             "ready_for_public_traffic": False,
         }
+        report["next_operator_action"] = next_operator_action(report)
+        return report
 
     remaining = remaining_legal_placeholders()
     blockers: list[str] = []
@@ -110,6 +178,11 @@ def launch_report() -> dict[str, Any]:
         "starter": settings.stripe_price_starter,
         "pro": settings.stripe_price_pro,
         "agency": settings.stripe_price_agency,
+    }
+    price_env = {
+        "starter": "STRIPE_PRICE_STARTER",
+        "pro": "STRIPE_PRICE_PRO",
+        "agency": "STRIPE_PRICE_AGENCY",
     }
     missing_stripe = [
         name
@@ -127,6 +200,11 @@ def launch_report() -> dict[str, Any]:
         {value for value in configured_prices if configured_prices.count(value) > 1}
     )
     placeholder_prices = [name for name, value in prices.items() if value in PLACEHOLDER_PRICE_IDS]
+    non_price_ids = [
+        price_env[name]
+        for name, value in prices.items()
+        if _present(value) and not value.startswith("price_")
+    ]
     legacy = [name for name in LEGACY_MAIN_VARS if os.getenv(name)]
 
     if not settings.is_production:
@@ -153,6 +231,11 @@ def launch_report() -> dict[str, Any]:
         blockers.append(
             "Stripe Price IDs still use documented placeholders: " + ", ".join(placeholder_prices)
         )
+    if non_price_ids:
+        blockers.append(
+            "Stripe Price IDs must be Price ID (price_...) values, not Product IDs: "
+            + ", ".join(non_price_ids)
+        )
     if remaining:
         blockers.append("Legal placeholders remain: " + ", ".join(remaining))
     if legacy:
@@ -171,6 +254,10 @@ def launch_report() -> dict[str, Any]:
         warnings.append("Prefer a restricted live Stripe key (rk_live...) over sk_live")
     if stripe_kind == "unrecognized" and _present(settings.stripe_api_key):
         warnings.append("STRIPE_API_KEY does not use a recognized sk_/rk_ prefix")
+    if _present(settings.stripe_webhook_secret) and not settings.stripe_webhook_secret.startswith(
+        "whsec_"
+    ):
+        warnings.append("STRIPE_WEBHOOK_SECRET should start with whsec_")
     if settings.llm_enabled:
         has_llm_key = any(
             os.getenv(name) for name in ("OPENAI_API_KEY", "XAI_API_KEY", "GROK_API_KEY")
@@ -193,12 +280,15 @@ def launch_report() -> dict[str, Any]:
         "stripe_key_kind": stripe_kind,
         "stripe_webhook_secret_set": _present(settings.stripe_webhook_secret),
         "stripe_prices_set": {
-            name: _present(value) and value not in PLACEHOLDER_PRICE_IDS
+            name: _present(value)
+            and value not in PLACEHOLDER_PRICE_IDS
+            and value.startswith("price_")
             for name, value in prices.items()
         },
         "stripe_fully_configured": settings.stripe_fully_configured
         and not duplicate_prices
-        and not placeholder_prices,
+        and not placeholder_prices
+        and not non_price_ids,
         "webhook_url": f"{settings.public_base_url}/webhooks/stripe",
         "checkout_success_url": f"{settings.public_base_url}/About_Pricing?checkout=success",
         "checkout_cancel_url": f"{settings.public_base_url}/About_Pricing?checkout=cancelled",
@@ -208,10 +298,10 @@ def launch_report() -> dict[str, Any]:
         "legacy_main_vars": legacy,
     }
 
-    return {
+    report = {
         "environment": settings.environment,
         "production": settings.is_production,
-        "config_error": config_error,
+        "config_error": None,
         "stripe_fully_configured": bool(checks["stripe_fully_configured"]),
         "llm_enabled": settings.llm_enabled,
         "legal_placeholders": remaining,
@@ -220,6 +310,8 @@ def launch_report() -> dict[str, Any]:
         "checks": checks,
         "ready_for_public_traffic": not blockers,
     }
+    report["next_operator_action"] = next_operator_action(report)
+    return report
 
 
 def render_report(report: dict[str, Any]) -> str:
@@ -251,6 +343,11 @@ def render_report(report: dict[str, Any]) -> str:
         lines.append("  public-traffic gate: pass")
     else:
         lines.append("  public-traffic gate: blocked")
+    lines.append(f"  next: {report.get('next_operator_action')}")
+    if report.get("production"):
+        lines.append("  verify:")
+        lines.extend(f"    {step}" for step in VERIFY_SEQUENCE)
+    else:
         lines.append("  complete SHIP_CHECKLIST.md before accepting paid public traffic")
     return "\n".join(lines)
 
