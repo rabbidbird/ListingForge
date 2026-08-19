@@ -8,6 +8,8 @@ This repository was formerly named ListingForge. The product and all current use
 
 The v1 code path includes database accounts, per-user authorization, PostgreSQL migrations, transactional quotas, Stripe subscription webhooks, abuse controls, legal pages, a non-root container, CI, and automated tests. It is not a live service until the operator completes [SHIP_CHECKLIST.md](SHIP_CHECKLIST.md).
 
+`main` later grew a local SQLite / guest-identity demo pass. That work is **not** part of v1. Do not merge it into this paid path. See [docs/MERGE_STRATEGY.md](docs/MERGE_STRATEGY.md).
+
 TrueDraft never promises ranking, conversion, or sales. Its scores are transparent heuristic checklists only.
 
 ## Safety invariants
@@ -17,6 +19,7 @@ TrueDraft never promises ranking, conversion, or sales. Its scores are transpare
 - Every generation and export displays **DRAFT — verify before publishing**.
 - Every listing read, update, delete, and export is filtered by `user_id` on the server.
 - Production refuses SQLite, insecure session configuration, documented default secrets, and localhost public URLs.
+- Paid entitlements fail closed: unknown Price IDs, unpaid Checkout, and any subscription status other than `active` / `trialing` keep Free limits.
 
 ## Plans and enforced limits
 
@@ -71,10 +74,10 @@ On Windows, use `.venv\Scripts\python.exe` and `.venv\Scripts\pip.exe`.
 5. Set the initial production variables from `.env.example`: `ENV=production`, `DATABASE_URL`, the Railway HTTPS origin as `PUBLIC_BASE_URL`, a 32+ character `SESSION_SECRET`, `SESSION_COOKIE_SECURE=true`, `PORT=8080`, the Stripe restricted key, and three Price IDs. Billing buttons stay disabled until the signing secret is added.
 6. Deploy. Container startup runs `alembic upgrade head`; `/healthz` becomes healthy only after the migrated database is reachable.
 7. Add the Railway custom domain, point DNS as Railway instructs, then set `PUBLIC_BASE_URL=https://YOUR_DOMAIN` and redeploy.
-8. In Stripe Workbench, add `https://YOUR_DOMAIN/webhooks/stripe` and subscribe to `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, and `customer.subscription.deleted`. Copy its `whsec_...` value to `STRIPE_WEBHOOK_SECRET` and redeploy.
-9. Enable and configure the Stripe Customer Portal for subscription changes, cancellation, and payment-method management. Dynamic payment methods are controlled in Stripe; the code intentionally does not hard-code `payment_method_types`.
+8. In Stripe Workbench, add `https://YOUR_DOMAIN/webhooks/stripe` and subscribe at least `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `customer.subscription.created`, `customer.subscription.updated`, and `customer.subscription.deleted`. Copy its `whsec_...` value to `STRIPE_WEBHOOK_SECRET` and redeploy. Recommended extras: `invoice.payment_failed`, `invoice.paid`, `checkout.session.async_payment_failed`, `checkout.session.expired`.
+9. Enable and configure the Stripe Customer Portal for subscription changes, cancellation, and payment-method management. Dynamic payment methods are controlled in Stripe; the code intentionally does not hard-code `payment_method_types`. Limit customers to one subscription in the Stripe dashboard so a second Checkout cannot be completed accidentally.
 10. Replace `{{OPERATOR_LEGAL_NAME}}`, `{{CONTACT_EMAIL}}`, and `{{JURISDICTION}}` in `pages/6_Legal.py`.
-11. Run one live signup → template draft → private history smoke check, then a Stripe test-mode Checkout/webhook/cancel cycle before switching all Stripe variables to live mode.
+11. Run `ENV=production python -m scripts.launch_check` against the production variable set. It must print `public-traffic gate: pass` and exit 0. Then run one live signup → template draft → private history smoke check, then a Stripe test-mode Checkout/webhook/cancel cycle before switching all Stripe variables to live mode.
 12. Require the GitHub Actions `test` and `container-smoke` jobs on the default branch, then release.
 
 Do not enable Stripe automatic tax unless the operator has the registrations required for Stripe to calculate and collect tax. Use separate Stripe keys for test and live environments.
@@ -84,6 +87,8 @@ Do not enable Stripe automatic tax unless the operator has the registrations req
 Copy `.env.example` only for local reference. Railway variables should be entered in its secret manager. `DATABASE_URL` accepts Railway's `postgres://`/`postgresql://` forms and is normalized to psycopg 3.
 
 Email verification is an intentionally disabled v1 stub (`EMAIL_VERIFICATION_REQUIRED=false`). Do not turn it on until an email delivery adapter is connected. Signup still requires Terms acceptance.
+
+Do not set `LISTINGFORGE_SKIP_AUTH`, `TRUEDRAFT_SKIP_AUTH`, `LISTINGFORGE_REQUIRE_AUTH`, `LISTINGFORGE_USER_ID`, `STRIPE_SUCCESS_URL`, or `STRIPE_CANCEL_URL`. Those names belong to the abandoned local-demo path. Checkout and portal URLs are derived from `PUBLIC_BASE_URL`.
 
 ## Quality checks
 
@@ -95,16 +100,20 @@ python -m scripts.smoke
 python -m scripts.launch_check
 ```
 
+`python -m scripts.launch_check` is read-only. In `ENV=production` it exits 1 unless every public-traffic gate passes. It never prints secrets. Add `--strict` to fail in non-production environments as well.
+
 CI runs lint, migrations, the fact-lock/auth/usage/billing/CSV suite, an import smoke test, a Docker build, and an HTTP container health check against PostgreSQL.
 
 ## Stripe webhook behavior
 
 - Stripe signatures are verified before parsing event data.
 - Processed event IDs are stored transactionally, so retries are idempotent.
-- Checkout metadata and, when present, Checkout line-item Prices map a signed event to an immutable TrueDraft user and a configured Price. The `plan` metadata field is never trusted.
-- Subscription changes derive plan from the current Stripe Price.
-- Deleted, unpaid, incomplete, or otherwise inactive subscriptions fail closed to Free limits.
+- Checkout metadata and, when present, Checkout line-item Prices map a signed event to an immutable TrueDraft user and a configured Price. The `plan` metadata field is never trusted. Line items do not need to be expanded in the Stripe dashboard; `metadata.price_id` is a signed fallback.
+- `checkout.session.async_payment_succeeded` is handled the same as a paid completed Checkout so delayed payment methods can still grant entitlements.
+- Subscription changes derive plan from the current Stripe Price. Unknown Prices fail closed to Free even when Stripe status is `active`.
+- Deleted, unpaid, incomplete, paused, past_due, or otherwise inactive subscriptions fail closed to Free limits. Past-due accounts must use the Customer Portal; a second Checkout session is blocked.
 - Older out-of-order events cannot overwrite newer entitlement state.
+- Unhandled event types are acknowledged and recorded so Stripe does not retry them, but they never change entitlements. Invoice paid/failed events are acknowledged and deferred to `customer.subscription.updated`.
 
 The integration pins Stripe API version `2026-06-24.dahlia` and Stripe Python `15.3.1`.
 

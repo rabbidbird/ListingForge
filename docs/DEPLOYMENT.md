@@ -2,17 +2,33 @@
 
 Railway is the primary supported production target. Follow the 12-step runbook in the root [README](../README.md#railway-production-runbook-12-steps); it is the canonical source for environment variables, PostgreSQL, Stripe webhooks, the Customer Portal, custom domains, and the live smoke sequence.
 
+The four remaining launch items are operator-owned and listed in [SHIP_CHECKLIST.md](../SHIP_CHECKLIST.md). Do not merge `main`'s local SQLite / guest-identity commits; see [MERGE_STRATEGY.md](MERGE_STRATEGY.md).
+
 ## Container contract
 
 - External port: `$PORT` (default `8080`)
 - Health check: `GET /healthz`
 - Stripe webhook: `POST /webhooks/stripe`
+- Checkout return: `/About_Pricing?checkout=success` or `?checkout=cancelled`
+- Portal return: `/About_Pricing?portal=return`
 - Startup migration: `python -m core.migrate` → `alembic upgrade head`
 - Processes behind nginx: FastAPI on `127.0.0.1:8000`, Streamlit on `127.0.0.1:8501`
 - Runtime user: non-root UID/GID `10001`
 
 The health endpoint checks the migrated `users` table, not merely process liveness. A container with an unreachable or unmigrated database stays unhealthy.
 
-Production (`ENV=production`) refuses SQLite, HTTP or localhost `PUBLIC_BASE_URL`, insecure cookies, and documented/default `SESSION_SECRET` values. `python -m scripts.launch_check` reports remaining operator blockers without enabling payments.
+## Production vs local
+
+| | Local / CI | Production |
+|---|---|---|
+| `ENV` | `development` or `test` | `production` (required; `prod` is rejected) |
+| Database | SQLite fallback, or Compose Postgres | Railway PostgreSQL only |
+| `PUBLIC_BASE_URL` | `http://localhost:8080` | public `https://` origin |
+| `SESSION_SECRET` | documented example (rejected in prod) | unique 32+ characters |
+| `SESSION_COOKIE_SECURE` | `false` | `true` |
+| Stripe | empty; billing buttons disabled | restricted live key + webhook + three Price IDs |
+| Auth bypasses | none on this branch | none; leftover `LISTINGFORGE_*` / `*_SKIP_AUTH` vars are launch blockers |
+
+Production (`ENV=production`) refuses SQLite, HTTP or localhost `PUBLIC_BASE_URL`, insecure cookies, and documented/default `SESSION_SECRET` values. `python -m scripts.launch_check` reports remaining operator blockers without enabling payments and exits 1 in production until the public-traffic gate passes.
 
 Streamlit Community Cloud is not a supported paid-production target because this architecture needs a durable PostgreSQL database, a same-origin auth/webhook edge, and persistent secret-backed sessions. It may be adapted as a private UI demo only, without billing claims.
