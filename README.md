@@ -6,9 +6,11 @@ This repository was formerly named ListingForge. The product and all current use
 
 ## Release status
 
-The v1 code path includes database accounts, per-user authorization, PostgreSQL migrations, transactional quotas, Stripe subscription webhooks, abuse controls, legal pages, a non-root container, CI, and automated tests. It is not a live service until the operator completes [SHIP_CHECKLIST.md](SHIP_CHECKLIST.md).
+The v1 code path includes database accounts, per-user authorization, PostgreSQL migrations, transactional quotas, Stripe subscription webhooks, abuse controls, legal pages, a public marketing home, a non-root container, CI, and automated tests. It is not a live service until the operator completes [SHIP_CHECKLIST.md](SHIP_CHECKLIST.md).
 
 `main` later grew a local SQLite / guest-identity demo pass. That work is **not** part of v1. Do not merge it into this paid path. See [docs/MERGE_STRATEGY.md](docs/MERGE_STRATEGY.md).
+
+The logged-out home is a conversion landing page (promise, how it works, trust, plan teaser). It does not invent testimonials, user counts, or marketplace-publish claims. Signed-in users still see plan/usage metrics and draft actions.
 
 TrueDraft never promises ranking, conversion, or sales. Its scores are transparent heuristic checklists only.
 

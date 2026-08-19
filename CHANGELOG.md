@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.0.5 public landing and pricing story — 2026-08-19
+
+- Logged-out Home is a conversion landing page: hero, honest positioning, how-it-works, feature grid, trust, blocked-claim categories, and a plan teaser. Logged-in Home still shows plan metrics and draft/CSV actions.
+- Plans & Pricing now includes a comparison table, honest plan blurbs, and billing FAQ. Checkout, portal, and fail-closed entitlement rules are unchanged.
+- Shared `core/copy.py` keeps TrueDraft naming, draft/heuristic disclaimers, and forbidden marketing phrases consistent. Signup/sign-in pages repeat the same promise.
+- Optimizer, bulk, checklist, history, and export confirmations make the no-invention and human-review rules visible.
+
 ## v1.0.4 land-as-main commands — 2026-08-19
 
 - `docs/MERGE_STRATEGY.md` now has the two safe landing commands (force-point `main` at this tip, or `merge -s ours` **while on this branch** so GitHub Merge works). It states that `-s ours` on `main` would keep the guest/SQLite tree.
