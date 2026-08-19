@@ -6,17 +6,19 @@ import streamlit as st
 
 from core.auth import require_streamlit_user
 from core.seo_scorer import SEOScorer
-from core.ui import configure_page, heuristic_notice, render_sidebar
+from core.ui import configure_page, draft_banner, heuristic_notice, render_sidebar
 
 configure_page("Listing Checklist", "📋")
 user = require_streamlit_user()
 render_sidebar(user)
 
 st.title("Listing checklist")
+draft_banner()
 heuristic_notice()
 st.caption(
     "This checks visible structure and a few current platform constraints. It cannot assess "
-    "truth, category eligibility, ranking, buyer intent, or marketplace enforcement."
+    "truth, category eligibility, ranking, buyer intent, or marketplace enforcement. "
+    "It does not generate or publish listing text."
 )
 
 with st.form("checklist_form"):

@@ -128,6 +128,7 @@ def _current_request_user(request: Request) -> User | None:
 
 LOGIN_FORM = """
 <h1>Sign in</h1>
+<p class="note">Fact-locked drafts from facts you supply. TrueDraft does not publish to marketplaces or promise ranking.</p>
 {error}
 <form method="post" action="/auth/login">
 <input type="hidden" name="csrf_token" value="{{CSRF}}">
@@ -135,11 +136,12 @@ LOGIN_FORM = """
 <label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" maxlength="128" required>
 <button type="submit">Sign in</button>
 </form>
-<p class="note">New here? <a href="/auth/signup">Create an account</a>.</p>
+<p class="note">New here? <a href="/auth/signup">Create an account</a>. <a href="/">Back to home</a>.</p>
 """
 
 SIGNUP_FORM = """
 <h1>Create your account</h1>
+<p class="note">Fact-locked drafts from facts you supply. TrueDraft does not publish to marketplaces or promise ranking.</p>
 {error}
 <form method="post" action="/auth/signup">
 <input type="hidden" name="csrf_token" value="{{CSRF}}">
@@ -149,7 +151,7 @@ SIGNUP_FORM = """
 <div class="check"><input id="terms" name="accepted_terms" type="checkbox" value="true" required><label for="terms">I accept the <a href="/Legal" target="_blank">Terms of Service and Privacy Policy</a>.</label></div>
 <button type="submit">Create account</button>
 </form>
-<p class="note">Already registered? <a href="/auth/login">Sign in</a>.</p>
+<p class="note">Already registered? <a href="/auth/login">Sign in</a>. <a href="/">Back to home</a>.</p>
 """
 
 

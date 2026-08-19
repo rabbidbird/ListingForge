@@ -11,6 +11,7 @@ from core.ui import (
     confirm_before_export,
     copy_button,
     draft_banner,
+    render_export_reminder,
     render_sidebar,
 )
 from core.utils import (
@@ -29,7 +30,9 @@ st.title("Private draft history")
 st.caption("Every query below is scoped server-side to your immutable user ID.")
 history = get_history(user.id, limit=500)
 if not history:
-    st.info("No saved drafts yet.")
+    st.info("No saved drafts yet. Generate a starting draft from facts you can verify.")
+    if st.button("Create one draft", type="primary"):
+        st.switch_page("pages/1_Optimizer.py")
     st.stop()
 
 scores = [row["overall_score"] for row in history if row["overall_score"] is not None]
@@ -66,6 +69,7 @@ if full is None:
     st.error("Draft not found or not authorized.")
 else:
     draft_banner()
+    render_export_reminder()
     st.subheader(full["best_title"])
     copy_button(full["best_title"], label="Copy title")
     st.text_area(

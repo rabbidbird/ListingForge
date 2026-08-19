@@ -1,4 +1,4 @@
-"""Public plan table and authenticated Stripe billing actions."""
+"""Public plan comparison and authenticated Stripe billing actions."""
 
 from __future__ import annotations
 
@@ -12,19 +12,31 @@ from core.billing import (
     get_upgrade_options,
     stripe_enabled,
 )
+from core.copy import PLAN_BLURBS, PROMISE, plan_limit_lines
 from core.plans import PAID_PLANS, PLANS
-from core.ui import configure_page, render_quota_notice, render_sidebar
+from core.ui import (
+    configure_page,
+    draft_banner,
+    heuristic_notice,
+    render_public_ctas,
+    render_public_footer,
+    render_quota_notice,
+    render_sidebar,
+)
 from core.usage import get_usage
 
-configure_page("Plans & Billing", "💳")
+configure_page("Plans & Pricing", "💳")
 user = streamlit_current_user()
 render_sidebar(user)
 
-st.title("Plans and billing")
+st.title("Plans and pricing")
+st.write(PROMISE)
 st.write(
     "All plans use the same fact-locked generator. Paid plans raise documented quotas; "
-    "none are marketed as unlimited."
+    "none are marketed as unlimited. TrueDraft does not publish listings or promise ranking."
 )
+draft_banner()
+
 checkout_state = st.query_params.get("checkout")
 portal_state = st.query_params.get("portal")
 if checkout_state == "success":
@@ -41,27 +53,37 @@ if portal_state == "return":
         "webhook is processed; refresh if the status below looks stale."
     )
 
+st.markdown("### Compare plans")
 columns = st.columns(4)
 for column, plan_name in zip(columns, ["free", "starter", "pro", "agency"], strict=True):
     policy = PLANS[plan_name]
     with column:
         st.subheader(policy.name)
         st.markdown(f"**{policy.display_price}**")
-        st.write(f"{policy.daily_generations:,} drafts / UTC day")
-        st.write(f"{policy.monthly_generations:,} drafts / UTC month")
-        st.write(f"{policy.bulk_rows_per_job:,} rows / bulk job")
-        st.write(f"{policy.daily_llm_generations:,} LLM attempts / UTC day")
+        st.caption(PLAN_BLURBS[plan_name])
+        for line in plan_limit_lines(plan_name):
+            st.write(line)
 
+st.markdown(
+    """
+| | Free | Starter | Pro | Agency |
+|---|---:|---:|---:|---:|
+| Price | $0 | $12/month | $29/month | $79/month |
+| Drafts / UTC day | 8 | 50 | 250 | 1,000 |
+| Drafts / UTC month | 40 | 1,000 | 5,000 | 25,000 |
+| Rows / bulk job | 5 | 25 | 100 | 250 |
+| LLM attempts / UTC day | 4 | 25 | 100 | 500 |
+| Fact-lock + review export | Yes | Yes | Yes | Yes |
+"""
+)
 st.caption(
     "Limits are enforced per user in database transactions. LLM attempts can fall back to "
-    "template output when source-lock checks fail."
+    "template output when source-lock checks fail. Periods are UTC."
 )
 
 if user is None:
-    st.info("Sign in to start or manage a subscription.")
-    left, right, _ = st.columns([1, 1, 2])
-    left.link_button("Create account", "/auth/signup", type="primary", use_container_width=True)
-    right.link_button("Sign in", "/auth/login", use_container_width=True)
+    st.info("Create a Free account to generate drafts. Upgrade later from this page.")
+    render_public_ctas(include_plans=False)
 else:
     usage = get_usage(user.id)
     st.subheader(f"Current plan: {str(usage['plan']).title()}")
@@ -138,7 +160,18 @@ st.markdown(
     "- The Stripe-hosted Customer Portal handles payment methods, plan changes, and cancellation.\n"
     "- Returning from Checkout or the portal does not itself change limits; the webhook does."
 )
+st.subheader("Billing questions")
+st.markdown(
+    "- **When does a paid plan start?** After Stripe confirms payment and the signed webhook "
+    "updates this account. The Checkout return page is not itself an entitlement.\n"
+    "- **What if payment fails later?** Free limits apply. Use the Customer Portal — do not "
+    "start a second Checkout.\n"
+    "- **Is any plan uncapped?** No. Every plan has a documented daily and monthly generation cap.\n"
+    "- **Does upgrading change the generator?** No. Paid plans only raise quotas."
+)
+heuristic_notice()
 st.caption(
     "Tax and refund obligations depend on the operator's registrations and jurisdiction; "
     "TrueDraft does not claim Stripe Tax is enabled automatically."
 )
+render_public_footer()

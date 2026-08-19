@@ -16,6 +16,7 @@ from core.ui import (
     configure_page,
     confirm_before_export,
     draft_banner,
+    render_claim_categories,
     render_quota_notice,
     render_sidebar,
 )
@@ -29,12 +30,17 @@ usage = get_usage(user.id)
 row_cap = int(usage["bulk_rows_per_job"])
 
 st.title("Bulk CSV drafts")
+st.caption(
+    "Each CSV cell is treated as a supplied fact. Empty material, audience, or feature "
+    "columns stay empty — TrueDraft will not invent them."
+)
 draft_banner()
 st.caption(
     f"{str(usage['plan']).title()} jobs are capped at {row_cap} rows. Each successful row "
     "uses one generation; invalid rows are reported without stopping the job."
 )
 render_quota_notice(usage)
+render_claim_categories()
 st.code(
     "product_name,primary_keyword,category,material,audience,features,extra_keywords,platform",
     language=None,
@@ -185,4 +191,7 @@ if stored and stored.get("user_id") == str(user.id):
         else:
             st.caption("Complete all confirmation checks to enable the bulk download.")
 elif uploaded is None:
-    st.info("Upload a CSV to validate and generate source-locked drafts.")
+    st.info(
+        "Upload a CSV to validate and generate source-locked drafts. "
+        "Leave unknown attributes blank instead of guessing."
+    )

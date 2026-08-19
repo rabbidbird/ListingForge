@@ -5,12 +5,17 @@ from __future__ import annotations
 import streamlit as st
 
 from core.auth import streamlit_current_user
-from core.ui import configure_page, render_sidebar
+from core.ui import configure_page, render_public_footer, render_sidebar
 
 configure_page("Legal", "📜")
 render_sidebar(streamlit_current_user())
 
 st.title("Legal and trust")
+st.write(
+    "TrueDraft creates starting drafts from facts you supply. You are responsible for "
+    "every claim you publish. These pages still contain operator-identity placeholders "
+    "that must be replaced before paid public traffic."
+)
 st.error(
     "Launch blocker: replace {{OPERATOR_LEGAL_NAME}}, {{CONTACT_EMAIL}}, and "
     "{{JURISDICTION}} everywhere on this page before accepting public customers."
@@ -152,3 +157,5 @@ You may not use TrueDraft to:
 {{OPERATOR_LEGAL_NAME}} may investigate suspected violations and suspend access where reasonably necessary to protect users, providers, or the service. Report abuse to {{CONTACT_EMAIL}}. Enforcement is subject to applicable law in {{JURISDICTION}}.
 """
     )
+
+render_public_footer()

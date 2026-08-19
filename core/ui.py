@@ -11,13 +11,30 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from .auth import render_account_sidebar
+from .copy import (
+    CLAIM_CATEGORIES,
+    COPY_SUCCESS,
+    DRAFT_BANNER,
+    EXPORT_REMINDER,
+    FEATURES,
+    FOOTER_CAPTION,
+    HEURISTIC_NOTICE,
+    HOW_IT_WORKS,
+    PLAN_BLURBS,
+    POSITIONING,
+    PRODUCT_NAME,
+    TAGLINE,
+    TRUST_POINTS,
+    plan_limit_lines,
+)
 from .models import User
+from .plans import PLANS
 from .usage import get_usage
 
 
-def configure_page(title: str, icon: str) -> None:
+def configure_page(title: str, icon: str, *, browser_title: str | None = None) -> None:
     st.set_page_config(
-        page_title=f"{title} | TrueDraft",
+        page_title=browser_title or f"{title} | {PRODUCT_NAME}",
         page_icon=icon,
         layout="wide",
         initial_sidebar_state="expanded",
@@ -29,7 +46,7 @@ def render_quota_notice(usage: dict[str, Any]) -> None:
     status = str(usage.get("status") or "free")
     if usage.get("payment_failed"):
         st.error(
-            "A payment is past due, so Free limits apply. Open Plans & Billing and use the "
+            "A payment is past due, so Free limits apply. Open Plans & Pricing and use the "
             "Stripe Customer Portal to update the payment method."
         )
         return
@@ -42,7 +59,7 @@ def render_quota_notice(usage: dict[str, Any]) -> None:
     if status == "canceled":
         st.info(
             "The paid subscription is canceled. Free limits apply. Start a new plan from "
-            "Plans & Billing if you want paid quotas again."
+            "Plans & Pricing if you want paid quotas again."
         )
         return
     if not usage.get("can_generate"):
@@ -51,25 +68,26 @@ def render_quota_notice(usage: dict[str, Any]) -> None:
             f"{plan} generation limit reached "
             f"({usage['daily']}/{usage['daily_limit']} today, "
             f"{usage['monthly']}/{usage['monthly_limit']} this month, UTC). "
-            "Upgrade on Plans & Billing or wait for the next UTC period."
+            "Upgrade on Plans & Pricing or wait for the next UTC period."
         )
         st.page_link("pages/5_About_Pricing.py", label="View plans and upgrade", icon="💳")
 
 
 def render_sidebar(user: User | None = None) -> None:
     with st.sidebar:
-        st.markdown("## TrueDraft")
-        st.caption("Fact-locked product listing drafts")
+        st.markdown(f"## {PRODUCT_NAME}")
+        st.caption(TAGLINE)
         st.page_link("app.py", label="Home", icon="🏠")
         st.page_link("pages/1_Optimizer.py", label="Single Draft", icon="✍️")
         st.page_link("pages/2_Bulk_Processor.py", label="Bulk Drafts", icon="📦")
         st.page_link("pages/3_SEO_Analyzer.py", label="Listing Checklist", icon="📋")
         st.page_link("pages/4_History.py", label="History", icon="🕘")
-        st.page_link("pages/5_About_Pricing.py", label="Plans & Billing", icon="💳")
+        st.page_link("pages/5_About_Pricing.py", label="Plans & Pricing", icon="💳")
         st.page_link("pages/6_Legal.py", label="Legal", icon="📜")
         st.divider()
         if user is None:
-            st.markdown("[Sign in](/auth/login) · [Sign up](/auth/signup)")
+            st.caption("Home → Plans → Create account")
+            st.markdown("[Create account](/auth/signup) · [Sign in](/auth/login)")
         else:
             usage = get_usage(user.id)
             st.caption(
@@ -86,17 +104,96 @@ def render_sidebar(user: User | None = None) -> None:
 
 
 def draft_banner() -> None:
-    st.warning(
-        "DRAFT — verify before publishing. Confirm every material, claim, rating, "
-        "shipping statement, and product attribute against the actual product."
-    )
+    st.warning(DRAFT_BANNER)
 
 
 def heuristic_notice() -> None:
-    st.info(
-        "Checklist scores are transparent heuristics only. They do not predict search "
-        "ranking, conversion, or sales. Marketplace rules can change."
-    )
+    st.info(HEURISTIC_NOTICE)
+
+
+def render_public_ctas(*, include_plans: bool = True) -> None:
+    cols = st.columns([1, 1, 1, 1] if include_plans else [1, 1, 2])
+    cols[0].link_button("Create account", "/auth/signup", type="primary", use_container_width=True)
+    cols[1].link_button("Sign in", "/auth/login", use_container_width=True)
+    if include_plans:
+        with cols[2]:
+            st.page_link("pages/5_About_Pricing.py", label="View plans", icon="💳")
+
+
+def render_how_it_works() -> None:
+    st.markdown("### How it works")
+    top = st.columns(2)
+    bottom = st.columns(2)
+    for column, (title, body) in zip([*top, *bottom], HOW_IT_WORKS, strict=True):
+        with column:
+            st.markdown(f"**{title}**")
+            st.write(body)
+
+
+def render_feature_grid() -> None:
+    st.markdown("### What you can do")
+    first = st.columns(3)
+    second = st.columns(2)
+    slots = [*first, *second]
+    for column, (title, body) in zip(slots, FEATURES, strict=True):
+        with column:
+            st.markdown(f"**{title}**")
+            st.write(body)
+
+
+def render_trust_grid() -> None:
+    st.markdown("### Why the drafts stay honest")
+    top = st.columns(2)
+    bottom = st.columns(2)
+    for column, (title, body) in zip([*top, *bottom], TRUST_POINTS, strict=True):
+        with column:
+            st.markdown(f"**{title}**")
+            st.write(body)
+
+
+def render_positioning() -> None:
+    st.markdown("### Honest positioning")
+    cols = st.columns(3)
+    for column, (title, body) in zip(cols, POSITIONING, strict=True):
+        with column:
+            st.markdown(f"**{title}**")
+            st.write(body)
+
+
+def render_claim_categories(*, expanded: bool = False) -> None:
+    st.markdown("### What TrueDraft will not invent")
+    with st.expander("See blocked claim categories", expanded=expanded):
+        st.markdown(
+            "These claims appear only when you type them. Leaving a field blank does not "
+            "let the generator fill it in."
+        )
+        for title, examples in CLAIM_CATEGORIES:
+            st.markdown(f"**{title}** — {examples}")
+
+
+def render_plan_teaser() -> None:
+    st.markdown("### Plans at a glance")
+    st.caption("Same generator on every plan. Paid plans raise documented quotas only.")
+    top = st.columns(2)
+    bottom = st.columns(2)
+    for column, key in zip([*top, *bottom], ["free", "starter", "pro", "agency"], strict=True):
+        policy = PLANS[key]
+        with column:
+            st.markdown(f"**{policy.name}** · {policy.display_price}")
+            st.caption(PLAN_BLURBS[key])
+            for line in plan_limit_lines(key):
+                st.write(line)
+    st.page_link("pages/5_About_Pricing.py", label="Compare plans and billing rules", icon="💳")
+
+
+def render_export_reminder() -> None:
+    st.caption(EXPORT_REMINDER)
+
+
+def render_public_footer() -> None:
+    st.divider()
+    st.markdown("[Home](/) · [Plans & Pricing](/About_Pricing) · [Legal](/Legal)")
+    st.caption(FOOTER_CAPTION)
 
 
 def copy_button(text: str, *, label: str = "Copy") -> None:
@@ -115,7 +212,7 @@ def copy_button(text: str, *, label: str = "Copy") -> None:
 const button = document.getElementById("{element_id}");
 button.addEventListener("click", async () => {{
   const status = document.getElementById("{element_id}-status");
-  try {{ await navigator.clipboard.writeText({payload}); status.textContent = "Copied"; }}
+  try {{ await navigator.clipboard.writeText({payload}); status.textContent = "{COPY_SUCCESS}"; }}
   catch (_) {{ status.textContent = "Copy failed — select the text manually"; }}
 }});
 </script>
@@ -126,7 +223,7 @@ button.addEventListener("click", async () => {{
 
 def confirm_before_export(key_prefix: str) -> bool:
     st.subheader("Confirm before export")
-    st.caption("Export stays locked until all three checks are confirmed.")
+    st.caption("Export stays locked until all three checks are confirmed. " + EXPORT_REMINDER)
     checks = [
         st.checkbox(
             "I checked every factual claim against the actual product.",

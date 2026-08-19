@@ -5,35 +5,54 @@ from __future__ import annotations
 import streamlit as st
 
 from core.auth import streamlit_current_user
+from core.copy import HERO_SUPPORT, PRODUCT_NAME, PROMISE, TAGLINE
 from core.ui import (
     configure_page,
     draft_banner,
     heuristic_notice,
+    render_claim_categories,
+    render_feature_grid,
+    render_how_it_works,
+    render_plan_teaser,
+    render_positioning,
+    render_public_ctas,
+    render_public_footer,
     render_quota_notice,
     render_sidebar,
+    render_trust_grid,
 )
 from core.usage import get_usage
 
-configure_page("Home", "✍️")
+configure_page(
+    "Home",
+    "✍️",
+    browser_title=f"{PRODUCT_NAME} — Fact-locked listing drafts",
+)
 user = streamlit_current_user()
 render_sidebar(user)
 
-st.title("TrueDraft")
-st.subheader("Fact-locked product listing drafts from facts you supply")
-st.write(
-    "Create draft titles, descriptions, and tags for Etsy, Shopify, and Amazon-style "
-    "marketplaces without silently filling in missing product attributes."
-)
+st.title(PRODUCT_NAME)
+st.subheader(TAGLINE)
+st.write(PROMISE)
+st.write(HERO_SUPPORT)
 draft_banner()
 
 if user is None:
-    st.markdown("### Start with a free account")
-    st.write("Free accounts include 8 generations per UTC day and 40 per UTC month.")
-    left, right, _ = st.columns([1, 1, 2])
-    with left:
-        st.link_button("Create account", "/auth/signup", type="primary", use_container_width=True)
-    with right:
-        st.link_button("Sign in", "/auth/login", use_container_width=True)
+    render_public_ctas()
+    st.divider()
+    render_positioning()
+    st.divider()
+    render_how_it_works()
+    st.divider()
+    render_feature_grid()
+    st.divider()
+    render_trust_grid()
+    st.divider()
+    render_claim_categories()
+    st.divider()
+    render_plan_teaser()
+    heuristic_notice()
+    render_public_footer()
 else:
     usage = get_usage(user.id)
     st.success(f"Welcome back, {user.name}.")
@@ -42,35 +61,18 @@ else:
     second.metric("Today (UTC)", f"{usage['daily']} / {usage['daily_limit']}")
     third.metric("This month (UTC)", f"{usage['monthly']} / {usage['monthly_limit']}")
     render_quota_notice(usage)
-    left, right, _ = st.columns([1, 1, 2])
+    left, middle, right = st.columns(3)
     with left:
         if st.button("Create one draft", type="primary", use_container_width=True):
             st.switch_page("pages/1_Optimizer.py")
-    with right:
+    with middle:
         if st.button("Process a CSV", use_container_width=True):
             st.switch_page("pages/2_Bulk_Processor.py")
-
-st.divider()
-st.markdown("### What is locked")
-one, two, three = st.columns(3)
-with one:
-    st.markdown(
-        "**No silent product facts**  \n"
-        "Materials, construction, ratings, certifications, shipping claims, and social proof "
-        "must come from your input."
-    )
-with two:
-    st.markdown(
-        "**One account, one history**  \n"
-        "Listings and usage are keyed to your immutable user ID and authorized on every read, "
-        "update, and delete."
-    )
-with three:
-    st.markdown(
-        "**Review stays mandatory**  \n"
-        "Exports remain behind a confirmation checklist. TrueDraft does not publish to a "
-        "marketplace for you."
-    )
-
-heuristic_notice()
-st.caption("TrueDraft v1 · Output is always a starting draft · See Legal for Terms and Privacy")
+    with right:
+        if st.button("View plans", use_container_width=True):
+            st.switch_page("pages/5_About_Pricing.py")
+    st.divider()
+    render_how_it_works()
+    render_claim_categories()
+    heuristic_notice()
+    render_public_footer()

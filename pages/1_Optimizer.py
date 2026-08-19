@@ -15,6 +15,8 @@ from core.ui import (
     copy_button,
     draft_banner,
     heuristic_notice,
+    render_claim_categories,
+    render_export_reminder,
     render_quota_notice,
     render_sidebar,
     safe_filename,
@@ -28,12 +30,17 @@ render_sidebar(user)
 usage = get_usage(user.id)
 
 st.title("Single listing draft")
+st.caption(
+    "Supply only facts you can verify. TrueDraft will not fill in a missing material, "
+    "certification, origin, rating, or shipping claim."
+)
 draft_banner()
 st.caption(
     f"{str(usage['plan']).title()} plan: {usage['daily_remaining']} remaining today and "
     f"{usage['monthly_remaining']} this month (UTC)."
 )
 render_quota_notice(usage)
+render_claim_categories()
 
 llm_ready = is_llm_available()
 if llm_ready:
@@ -60,9 +67,15 @@ with st.form("listing_form", clear_on_submit=False):
         )
         platform = st.radio("Draft format", ["etsy", "shopify", "amazon"], horizontal=True)
     with right:
-        material = st.text_input("Material / attribute (only if verified)", max_chars=300)
+        material = st.text_input(
+            "Material / attribute (only if verified — leave blank if unsure)",
+            max_chars=300,
+        )
         audience = st.text_input("Audience (only if applicable)", max_chars=300)
-        features_raw = st.text_area("Verified product details (one per line, up to 8)", height=120)
+        features_raw = st.text_area(
+            "Verified product details (one per line, up to 8). Do not add claims you cannot prove.",
+            height=120,
+        )
         extra_keywords = st.text_input(
             "Additional supplied phrases (comma separated)", max_chars=500
         )
@@ -124,6 +137,7 @@ if stored and stored.get("user_id") == str(user.id):
     score_two.metric("Description checklist", f"{result['scores']['description']['score']}/100")
     score_three.metric("Tags checklist", f"{result['scores']['tags']['score']}/100")
     heuristic_notice()
+    render_export_reminder()
 
     st.subheader("Title options")
     for index, title in enumerate(result["titles"], start=1):
@@ -177,4 +191,7 @@ if stored and stored.get("user_id") == str(user.id):
     else:
         st.caption("Complete all confirmation checks to enable downloads.")
 else:
-    st.info("Supply only facts you can verify, then generate a starting draft.")
+    st.info(
+        "Supply only facts you can verify, then generate a starting draft. "
+        "Blank fields stay blank in the output."
+    )
