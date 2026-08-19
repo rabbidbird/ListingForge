@@ -23,6 +23,16 @@ def test_no_invention_on_minimal_input():
         "ethically sourced",
         "fair trade",
         "locally made",
+        "nickel-free",
+        "nickel free",
+        "lead-free",
+        "lead free",
+        "small-batch",
+        "small batch",
+        "organic",
+        "vegan",
+        "certified",
+        "made in",
     ]
     for term in forbidden:
         assert term not in text, f"Invented claim found: {term}"
@@ -45,6 +55,21 @@ def test_supplied_facts_appear():
         or "sterling silver" in r["description"].lower()
     )
     assert r["meta"]["claim_warnings"] == []
+
+
+def test_supplied_compliance_terms_may_appear_when_sourced():
+    g = ListingGenerator(use_llm=False)
+    r = g.generate_full_listing(
+        product_name="Studio Earrings",
+        primary_keyword="studio earrings",
+        material="nickel-free brass",
+        features=["lead-free", "small-batch"],
+        platform="etsy",
+    )
+    blob = (r["best_title"] + " " + r["description"]).lower()
+    assert "nickel-free" in blob
+    assert "lead-free" in blob
+    assert "small-batch" in blob
 
 
 def test_tags_respect_etsy_limit():
@@ -103,6 +128,26 @@ def test_unsourced_shipping_and_handmade_claims_force_fallback(monkeypatch):
     assert "handmade" not in output
     assert "free shipping" not in output
     assert result["meta"]["source"] == "template"
+
+
+def test_unsourced_numbers_and_vocabulary_force_fallback(monkeypatch):
+    monkeypatch.setattr("core.generator.is_llm_available", lambda: True)
+    monkeypatch.setattr(
+        "core.generator.generate_with_llm",
+        lambda **_: {
+            "titles": ["Cup"],
+            "best_title": "Cup",
+            "description": "DRAFT cup weighs 12 ounces and is ceramic",
+            "tags": ["cup"],
+            "meta": {"model": "mock"},
+        },
+    )
+    result = ListingGenerator(use_llm=True).generate_full_listing(
+        product_name="Cup", primary_keyword="cup", platform="etsy"
+    )
+    assert result["meta"]["source"] == "template"
+    reasons = " ".join(result["meta"]["llm_rejection_reasons"])
+    assert "unsourced" in reasons
 
 
 def test_overlong_llm_title_option_forces_template_fallback(monkeypatch):
