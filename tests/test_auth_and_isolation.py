@@ -1,11 +1,28 @@
 from __future__ import annotations
 
-from core.auth import authenticate_user, create_user_session, get_user_by_session_token
+import pytest
+
+from core.auth import (
+    AuthError,
+    authenticate_user,
+    create_user_session,
+    get_user_by_session_token,
+    register_user,
+    revoke_user_session,
+)
 from core.database import session_scope
 from core.generation_service import generate_for_user
 from core.generator import ListingGenerator
-from core.usage import get_usage
-from core.utils import delete_listing, get_history, get_listing_by_id, save_listing, update_listing
+from core.models import User
+from core.usage import UsageLimitError, get_usage, reserve_generation
+from core.utils import (
+    delete_listing,
+    get_full_history,
+    get_history,
+    get_listing_by_id,
+    save_listing,
+    update_listing,
+)
 
 
 def test_signup_login_and_opaque_session(user_factory):
@@ -26,6 +43,37 @@ def test_signup_login_and_opaque_session(user_factory):
         )
 
 
+def test_register_requires_terms_acceptance():
+    with session_scope() as session, pytest.raises(AuthError, match="Terms"):
+        register_user(
+            session,
+            email="noterms@example.com",
+            password="correct horse battery staple",
+            name="No Terms",
+            accepted_terms=False,
+        )
+
+
+def test_revoked_session_is_rejected(user_factory):
+    user = user_factory()
+    with session_scope() as session:
+        token = create_user_session(session, user.id)
+    with session_scope() as session:
+        revoke_user_session(session, token)
+        assert get_user_by_session_token(session, token) is None
+
+
+def test_inactive_user_cannot_reserve_generation(user_factory):
+    user = user_factory()
+    with session_scope() as session:
+        db_user = session.get(User, user.id)
+        assert db_user is not None
+        db_user.is_active = False
+    with pytest.raises(UsageLimitError) as blocked:
+        reserve_generation(user.id, mode="single", provider="template")
+    assert blocked.value.code == "unauthorized"
+
+
 def test_user_cannot_read_update_or_delete_another_users_listing(user_factory):
     owner = user_factory(email="owner@example.com")
     stranger = user_factory(email="stranger@example.com")
@@ -37,9 +85,11 @@ def test_user_cannot_read_update_or_delete_another_users_listing(user_factory):
     assert get_listing_by_id(owner.id, listing_id) is not None
     assert get_listing_by_id(stranger.id, listing_id) is None
     assert get_history(stranger.id) == []
+    assert get_full_history(stranger.id) == []
     assert update_listing(stranger.id, listing_id, result) is False
     assert delete_listing(stranger.id, listing_id) is False
     assert get_listing_by_id(owner.id, listing_id) is not None
+    assert len(get_full_history(owner.id)) == 1
 
 
 def test_authenticated_generation_path_saves_private_draft_and_usage(user_factory):

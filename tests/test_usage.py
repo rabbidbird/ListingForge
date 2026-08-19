@@ -6,7 +6,13 @@ from datetime import timedelta
 import pytest
 
 from core.models import utcnow
-from core.usage import UsageLimitError, complete_generation, get_usage, reserve_generation
+from core.usage import (
+    UsageLimitError,
+    complete_generation,
+    fail_generation,
+    get_usage,
+    reserve_generation,
+)
 
 
 def _record_generations(user_id, count: int) -> None:
@@ -42,3 +48,12 @@ def test_pro_user_is_not_bound_by_free_limit(user_factory):
     assert usage["plan"] == "pro"
     assert usage["daily"] == 9
     assert usage["daily_limit"] > 8
+
+
+def test_failed_generation_does_not_consume_quota(user_factory):
+    user = user_factory()
+    event_id, _ = reserve_generation(user.id, mode="single", provider="template")
+    fail_generation(event_id)
+    usage = get_usage(user.id)
+    assert usage["daily"] == 0
+    assert usage["can_generate"] is True

@@ -33,6 +33,8 @@ jobs:
         run: python -m pytest
       - name: Import and health smoke
         run: python -m scripts.smoke
+      - name: Launch readiness report
+        run: python -m scripts.launch_check
 
   container-smoke:
     runs-on: ubuntu-latest

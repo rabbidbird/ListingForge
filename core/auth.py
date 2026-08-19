@@ -168,6 +168,7 @@ def revoke_user_session(session: Session, token: str | None) -> None:
     )
     if auth_session is not None and auth_session.revoked_at is None:
         auth_session.revoked_at = utcnow()
+        session.flush()
 
 
 def streamlit_current_user() -> User | None:

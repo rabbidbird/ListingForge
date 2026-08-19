@@ -38,8 +38,7 @@ def _configure_stripe() -> None:
 
 
 def stripe_enabled() -> bool:
-    settings = get_settings()
-    return settings.stripe_configured and len(settings.stripe_price_to_plan) == 3
+    return get_settings().stripe_fully_configured
 
 
 def _price_for_plan(plan: str) -> str:
@@ -159,7 +158,23 @@ def _subscription_price_id(obj: dict[str, Any]) -> str | None:
     if not items:
         return None
     price = items[0].get("price") or {}
+    if isinstance(price, str) and price:
+        return price
     return price.get("id")
+
+
+def _checkout_price_id(obj: dict[str, Any]) -> str | None:
+    """Prefer the Price Stripe actually charged; never trust metadata.plan."""
+    items = (obj.get("line_items") or {}).get("data") or []
+    if items:
+        price = items[0].get("price") or {}
+        if isinstance(price, str) and price:
+            return price
+        if isinstance(price, dict) and price.get("id"):
+            return str(price["id"])
+    metadata = _metadata(obj)
+    raw = metadata.get("price_id")
+    return str(raw) if raw else None
 
 
 def _subscription_period_end(obj: dict[str, Any]) -> datetime | None:
@@ -192,7 +207,7 @@ def _find_subscription(session, obj: dict[str, Any]) -> Subscription | None:
 def _apply_checkout(session, obj: dict[str, Any], event_created: int) -> dict[str, Any]:
     metadata = _metadata(obj)
     user_id = _as_uuid(obj.get("client_reference_id") or metadata.get("user_id"))
-    price_id = metadata.get("price_id")
+    price_id = _checkout_price_id(obj)
     plan = get_settings().stripe_price_to_plan.get(str(price_id))
     if user_id is None or plan not in PAID_PLANS:
         raise BillingError("Checkout event is missing trusted entitlement metadata.")

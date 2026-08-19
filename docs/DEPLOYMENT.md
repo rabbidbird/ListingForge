@@ -13,4 +13,6 @@ Railway is the primary supported production target. Follow the 12-step runbook i
 
 The health endpoint checks the migrated `users` table, not merely process liveness. A container with an unreachable or unmigrated database stays unhealthy.
 
+Production (`ENV=production`) refuses SQLite, HTTP or localhost `PUBLIC_BASE_URL`, insecure cookies, and documented/default `SESSION_SECRET` values. `python -m scripts.launch_check` reports remaining operator blockers without enabling payments.
+
 Streamlit Community Cloud is not a supported paid-production target because this architecture needs a durable PostgreSQL database, a same-origin auth/webhook edge, and persistent secret-backed sessions. It may be adapted as a private UI demo only, without billing claims.

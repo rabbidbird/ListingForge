@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.0.1 launch hardening — 2026-08-19
+
+- Production now fails closed on documented/default session secrets, repeated-character secrets, and localhost `PUBLIC_BASE_URL` values. `get_settings()` runs this check for every process, not only the FastAPI import path.
+- Checkout entitlements map from the Stripe Price that was charged (line items first, then `metadata.price_id`) and never from `metadata.plan`.
+- Unpaid checkout, unknown Price IDs, older webhooks, and `past_due` subscriptions now have explicit fail-closed tests.
+- Failed generation reservations no longer consume quota; inactive users cannot reserve usage; revoked sessions cannot authenticate.
+- Added Alembic-vs-model schema coverage, an operator `python -m scripts.launch_check` report, and extra fact-lock terms for ethically sourced / fair trade / locally made / nickel-free / lead-free / small-batch claims.
+
 ## v1.0.0 release candidate — 2026-08-15
 
 - Replaced YAML/demo authentication with PostgreSQL users, Argon2 passwords, Terms acceptance, opaque hashed sessions, HttpOnly cookies, login, logout, and signup.

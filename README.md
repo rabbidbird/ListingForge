@@ -16,7 +16,7 @@ TrueDraft never promises ranking, conversion, or sales. Its scores are transpare
 - An optional LLM is disabled by default. When enabled, it has per-user caps, a timeout, a token ceiling, a kill switch, and a strict source-vocabulary validator. Rejected output falls back to deterministic templates.
 - Every generation and export displays **DRAFT — verify before publishing**.
 - Every listing read, update, delete, and export is filtered by `user_id` on the server.
-- Production refuses SQLite and insecure session configuration.
+- Production refuses SQLite, insecure session configuration, documented default secrets, and localhost public URLs.
 
 ## Plans and enforced limits
 
@@ -92,6 +92,7 @@ ruff check .
 ruff format --check .
 pytest
 python -m scripts.smoke
+python -m scripts.launch_check
 ```
 
 CI runs lint, migrations, the fact-lock/auth/usage/billing/CSV suite, an import smoke test, a Docker build, and an HTTP container health check against PostgreSQL.
@@ -100,7 +101,7 @@ CI runs lint, migrations, the fact-lock/auth/usage/billing/CSV suite, an import 
 
 - Stripe signatures are verified before parsing event data.
 - Processed event IDs are stored transactionally, so retries are idempotent.
-- Checkout metadata maps a signed event to an immutable TrueDraft user and configured Price.
+- Checkout metadata and, when present, Checkout line-item Prices map a signed event to an immutable TrueDraft user and a configured Price. The `plan` metadata field is never trusted.
 - Subscription changes derive plan from the current Stripe Price.
 - Deleted, unpaid, incomplete, or otherwise inactive subscriptions fail closed to Free limits.
 - Older out-of-order events cannot overwrite newer entitlement state.

@@ -1,6 +1,7 @@
 """Environment-backed application configuration.
 
-Production intentionally fails closed when security-critical settings are absent.
+Production intentionally fails closed when security-critical settings are absent
+or still set to documented development defaults.
 """
 
 from __future__ import annotations
@@ -9,8 +10,22 @@ import os
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import urlparse
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+# Used only for local/dev. Production rejects these exact values.
+DEFAULT_DEV_SESSION_SECRET = "development-only-session-secret-change-me"
+INSECURE_SESSION_SECRETS = frozenset(
+    {
+        DEFAULT_DEV_SESSION_SECRET,
+        "local-development-session-secret-change-before-use",
+        "replace-with-at-least-32-random-characters",
+        "test-session-secret-with-at-least-32-characters",
+        "ci-session-secret-with-at-least-32-characters",
+    }
+)
+LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})
 
 
 def _as_bool(name: str, default: bool = False) -> bool:
@@ -36,6 +51,18 @@ def _normalize_database_url(value: str) -> str:
     if value.startswith("postgresql://"):
         return "postgresql+psycopg://" + value.removeprefix("postgresql://")
     return value
+
+
+def is_insecure_session_secret(secret: str) -> bool:
+    value = secret.strip()
+    if value in INSECURE_SESSION_SECRETS:
+        return True
+    if len(value) < 32:
+        return True
+    if len(set(value)) == 1:
+        return True
+    lowered = value.lower()
+    return any(marker in lowered for marker in ("change-me", "change-before-use", "replace-with"))
 
 
 @dataclass(frozen=True)
@@ -67,6 +94,10 @@ class Settings:
         return bool(self.stripe_api_key and self.stripe_webhook_secret)
 
     @property
+    def stripe_fully_configured(self) -> bool:
+        return self.stripe_configured and len(self.stripe_price_to_plan) == 3
+
+    @property
     def stripe_price_to_plan(self) -> dict[str, str]:
         return {
             price: plan
@@ -84,10 +115,16 @@ class Settings:
         errors: list[str] = []
         if not self.database_url.startswith("postgresql+"):
             errors.append("DATABASE_URL must point to PostgreSQL")
-        if len(self.session_secret) < 32:
-            errors.append("SESSION_SECRET must contain at least 32 characters")
-        if not self.public_base_url.startswith("https://"):
+        if is_insecure_session_secret(self.session_secret):
+            errors.append(
+                "SESSION_SECRET must be a unique 32+ character value, not a documented default"
+            )
+        parsed = urlparse(self.public_base_url)
+        host = (parsed.hostname or "").lower()
+        if parsed.scheme != "https" or not host:
             errors.append("PUBLIC_BASE_URL must use https://")
+        elif host in LOCAL_HOSTS:
+            errors.append("PUBLIC_BASE_URL must be the public https origin, not localhost")
         if not self.cookie_secure:
             errors.append("SESSION_COOKIE_SECURE must be true")
         if errors:
@@ -108,7 +145,7 @@ def get_settings() -> Settings:
         environment=environment,
         database_url=database_url,
         public_base_url=os.getenv("PUBLIC_BASE_URL", "http://localhost:8080").rstrip("/"),
-        session_secret=os.getenv("SESSION_SECRET", "development-only-session-secret-change-me"),
+        session_secret=os.getenv("SESSION_SECRET", DEFAULT_DEV_SESSION_SECRET),
         session_cookie_name=os.getenv("SESSION_COOKIE_NAME", "truedraft_session"),
         session_days=_as_int("SESSION_DAYS", 30),
         cookie_secure=_as_bool("SESSION_COOKIE_SECURE", environment == "production"),
@@ -123,6 +160,7 @@ def get_settings() -> Settings:
         stripe_price_pro=os.getenv("STRIPE_PRICE_PRO", ""),
         stripe_price_agency=os.getenv("STRIPE_PRICE_AGENCY", ""),
     )
+    settings.validate_for_production()
     return settings
 
 
