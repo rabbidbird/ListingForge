@@ -43,6 +43,7 @@ Recommended flow:
 - Free tier: 5 generations / day (track in SQLite or Redis)
 - Paid: Stripe Checkout → webhook updates user plan in DB
 - Use `stripe` Python package + a simple `users` table.
+  - Set: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_STARTER`, `STRIPE_PRICE_PRO`, `STRIPE_PRICE_AGENCY`, `STRIPE_SUCCESS_URL`, `STRIPE_CANCEL_URL`.
 
 High-level steps:
 1. Create products/prices in Stripe dashboard.

@@ -6,8 +6,9 @@ import streamlit as st
 
 from core.auth import user_id
 from core.usage import get_usage
-from core.billing import get_upgrade_options, stripe_enabled
+from core.billing import create_checkout_session, get_upgrade_options, stripe_enabled
 from core.usage import PLANS
+import os
 
 
 st.set_page_config(page_title="About & Pricing | ListingForge", page_icon="💎", layout="wide")
@@ -64,10 +65,33 @@ else:
 
 for option in get_upgrade_options():
     st.markdown(
-        f"- **{option['label']}** (`{option['plan']}`): "
+        f"**{option['label']}** (`{option['plan']}`) — "
         f"{option['price']} — {option['desc']} "
         f"(price_id: `{option['price_id'] or 'not set'}`)"
     )
+
+    if stripe_enabled() and option["price_id"]:
+        checkout_success = os.getenv("STRIPE_SUCCESS_URL", "").strip()
+        checkout_cancel = os.getenv("STRIPE_CANCEL_URL", "").strip()
+        if not checkout_success or not checkout_cancel:
+            st.warning("Set STRIPE_SUCCESS_URL and STRIPE_CANCEL_URL to enable checkout buttons.")
+        else:
+            if st.button(f"Start checkout for {option['label']}", key=f"start_checkout_{option['plan']}"):
+                user = viewer_user_id
+                checkout_url = create_checkout_session(
+                    user_id=user,
+                    price_id=option["price_id"],
+                    success_url=checkout_success,
+                    cancel_url=checkout_cancel,
+                )
+                if checkout_url:
+                    st.link_button(f"Continue to {option['label']} checkout", checkout_url, type="primary")
+                else:
+                    st.error("Checkout session could not be created. Confirm Stripe is configured.")
+    elif option["price_id"]:
+        st.info("Set Stripe credentials to enable payment checkout for this plan.")
+    else:
+        st.info("No price ID configured for this plan yet.")
 
 st.markdown(
     """
