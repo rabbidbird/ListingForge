@@ -75,7 +75,7 @@ if anything here disagrees.
 
 1. Create a Railway project from the repository. Railway will use `railway.toml` and the root `Dockerfile`.
 2. Add a Railway PostgreSQL service and expose its `DATABASE_URL` to the TrueDraft service.
-3. In Stripe **test** mode, create monthly recurring USD Prices matching the displayed plan copy: Starter $12, Pro $29, and Agency $79. Copy the `price_...` IDs (never `prod_...`). Create live Prices later, at the live switch, only after the test-mode Checkout cycle passes.
+3. In Stripe **test** mode, create one Product per plan, each with one monthly recurring USD Price matching the displayed copy: Starter $12, Pro $29, and Agency $79. Copy the `price_...` IDs (never `prod_...`). Create the separate live Products/Prices later, at the live switch, only after the test-mode Checkout cycle passes.
 4. Create a least-privilege Stripe restricted API key for the Checkout, Customer, Subscription, and Billing Portal operations used here. Start with `rk_test_...` / `sk_test_...`. Do not put keys in Git.
 5. Set the initial production variables from `.env.example`: `ENV=production` (already the image default), `DATABASE_URL`, the Railway HTTPS origin as `PUBLIC_BASE_URL`, a 32+ character `SESSION_SECRET`, `SESSION_COOKIE_SECURE=true`, `PORT=8080`, and the **test-mode** Stripe credentials. Billing buttons stay disabled until the signing secret is added. A container started without production variables fails closed instead of serving a local SQLite demo.
 6. Deploy. Container startup runs `alembic upgrade head`; `/healthz` becomes healthy only after the migrated database is reachable.
@@ -109,7 +109,9 @@ python -m scripts.launch_check
 
 `python -m scripts.launch_check` is read-only. In `ENV=production` it exits 1 unless every public-traffic gate passes. It prints the next operator action and never prints secrets. Add `--strict` to fail in non-production environments as well.
 
-CI runs lint, migrations, the fact-lock/auth/usage/billing/CSV suite, an import smoke test, a Docker build, and an HTTP container health check against PostgreSQL.
+CI runs lint, migrations, the fact-lock/auth/usage/billing/CSV suite, an import smoke test, and a Docker/PostgreSQL edge smoke. The container smoke verifies Alembic-head health, signup/session/logout through nginx, a Streamlit WebSocket upgrade, and signed/idempotent webhook delivery.
+
+The final repository security review and residual operator checks are recorded in [docs/SECURITY_REVIEW.md](docs/SECURITY_REVIEW.md). Vulnerabilities should be disclosed privately through [SECURITY.md](SECURITY.md), not a public issue.
 
 ## Stripe webhook behavior
 
@@ -123,7 +125,7 @@ CI runs lint, migrations, the fact-lock/auth/usage/billing/CSV suite, an import 
 - Older out-of-order events cannot overwrite newer entitlement state.
 - Unhandled event types are acknowledged and recorded so Stripe does not retry them, but they never change entitlements. Invoice paid/failed events are acknowledged and deferred to `customer.subscription.updated`.
 
-The integration pins Stripe API version `2026-06-24.dahlia` and Stripe Python `15.3.1`.
+The integration pins Stripe API version `2026-07-29.dahlia` and Stripe Python `15.4.0`.
 
 ## License
 

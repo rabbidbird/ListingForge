@@ -36,6 +36,8 @@ class AuthError(ValueError):
 
 
 def normalize_email(email: str) -> str:
+    if len(email) > 320:
+        raise AuthError("Enter a valid email address.")
     try:
         result = validate_email(email.strip(), check_deliverability=False)
     except EmailNotValidError as exc:
@@ -104,7 +106,9 @@ def authenticate_user(session: Session, *, email: str, password: str) -> User | 
         normalized_email = "invalid@example.invalid"
     user = session.scalar(select(User).where(User.email == normalized_email))
     password_hash = user.password_hash if user is not None else _DUMMY_PASSWORD_HASH
-    valid = verify_password(password_hash, password)
+    # Bound attacker-controlled input before the deliberately expensive Argon2 call.
+    candidate = password if 0 < len(password) <= MAX_PASSWORD_LENGTH else "invalid-password-length"
+    valid = verify_password(password_hash, candidate)
     if user is None or not valid or not user.is_active:
         return None
     if get_settings().email_verification_required and user.email_verified_at is None:

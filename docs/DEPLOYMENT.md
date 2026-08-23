@@ -8,7 +8,7 @@ The four remaining launch items are operator-owned. The paid PostgreSQL/auth/bil
 
 - Image default: `ENV=production` (Compose overrides to `development`)
 - External port: `$PORT` (default `8080`)
-- Health check: `GET /healthz`
+- Health check: `GET /healthz` (database reachable and exactly at the repository's Alembic head)
 - Stripe webhook: `POST /webhooks/stripe`
 - Checkout return: `/About_Pricing?checkout=success` or `?checkout=cancelled`
 - Portal return: `/About_Pricing?portal=return`
@@ -19,7 +19,7 @@ The four remaining launch items are operator-owned. The paid PostgreSQL/auth/bil
 
 A bare `docker run` of this image without production variables **must fail to start**. That is intentional. Use `docker compose up --build` for the local path.
 
-The health endpoint checks the migrated `users` table, not merely process liveness. A container with an unreachable or unmigrated database stays unhealthy.
+The health endpoint checks both a database query and the current Alembic revision. A container with an unreachable, unmigrated, or outdated database stays unhealthy.
 
 ## Production vs local
 

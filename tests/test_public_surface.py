@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from streamlit.testing.v1 import AppTest
 
 import core.auth
 import core.ui
+from core.billing import STRIPE_API_VERSION
 from core.copy import (
     AUTH_PROMISE,
     CLAIM_CATEGORIES,
@@ -166,3 +169,13 @@ def test_optimizer_shows_blocked_claim_categories(monkeypatch, user_factory):
     assert "leaving a field blank" in text.lower()
     assert DRAFT_BANNER in text
     assert forbidden_claims_in(text) == []
+
+
+def test_readme_stripe_versions_match_the_pinned_integration():
+    readme = Path("README.md").read_text(encoding="utf-8")
+    requirements = Path("requirements.txt").read_text(encoding="utf-8")
+    pinned_stripe = next(
+        line.split("==", 1)[1] for line in requirements.splitlines() if line.startswith("stripe==")
+    )
+    assert STRIPE_API_VERSION in readme
+    assert f"Stripe Python `{pinned_stripe}`" in readme

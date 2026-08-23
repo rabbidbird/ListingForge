@@ -6,11 +6,13 @@ import html
 import secrets
 import threading
 import time
-from collections import defaultdict, deque
+from collections import OrderedDict, deque
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy import func, select
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .auth import (
     AuthError,
@@ -23,15 +25,27 @@ from .auth import (
 from .billing import BillingError, WebhookVerificationError, handle_webhook
 from .config import get_settings
 from .database import session_scope
+from .migrate import database_at_migration_head
 from .models import User
 
 settings = get_settings()
 settings.validate_for_production()
 app = FastAPI(title="TrueDraft edge", docs_url=None, redoc_url=None, openapi_url=None)
 
+
+def _trusted_hosts() -> list[str]:
+    if not settings.is_production:
+        return ["*"]
+    public_host = urlparse(settings.public_base_url).hostname
+    return [host for host in (public_host, "127.0.0.1", "localhost") if host]
+
+
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=_trusted_hosts(), www_redirect=False)
+
 _AUTH_WINDOW_SECONDS = 600
 _AUTH_REQUESTS_PER_WINDOW = 40
-_ip_requests: dict[str, deque[float]] = defaultdict(deque)
+_AUTH_IP_BUCKET_LIMIT = 10_000
+_ip_requests: OrderedDict[str, deque[float]] = OrderedDict()
 _ip_lock = threading.Lock()
 
 
@@ -48,7 +62,8 @@ async def security_and_soft_limit(request: Request, call_next):
         now = time.monotonic()
         key = _client_ip(request)
         with _ip_lock:
-            requests = _ip_requests[key]
+            requests = _ip_requests.setdefault(key, deque())
+            _ip_requests.move_to_end(key)
             while requests and requests[0] <= now - _AUTH_WINDOW_SECONDS:
                 requests.popleft()
             if len(requests) >= _AUTH_REQUESTS_PER_WINDOW:
@@ -58,6 +73,8 @@ async def security_and_soft_limit(request: Request, call_next):
                     headers={"Retry-After": str(_AUTH_WINDOW_SECONDS)},
                 )
             requests.append(now)
+            while len(_ip_requests) > _AUTH_IP_BUCKET_LIMIT:
+                _ip_requests.popitem(last=False)
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "SAMEORIGIN"
@@ -301,6 +318,8 @@ def healthz():
     try:
         with session_scope() as session:
             session.scalar(select(func.count()).select_from(User))
+            if not database_at_migration_head(session):
+                raise RuntimeError("Database schema is not at the expected migration head.")
     except Exception:
         return JSONResponse({"status": "unhealthy"}, status_code=503)
     return {"status": "ok"}

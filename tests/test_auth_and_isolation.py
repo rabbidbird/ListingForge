@@ -4,6 +4,7 @@ from datetime import timedelta
 
 import pytest
 
+import core.auth
 from core.auth import (
     AuthError,
     authenticate_user,
@@ -43,6 +44,29 @@ def test_signup_login_and_opaque_session(user_factory):
         assert (
             authenticate_user(session, email="owner@example.com", password="wrong password") is None
         )
+
+
+def test_login_bounds_oversized_credentials_before_argon2(user_factory, monkeypatch):
+    user = user_factory(email="bounded@example.com")
+    candidates: list[str] = []
+
+    def record_verify(_password_hash: str, candidate: str) -> bool:
+        candidates.append(candidate)
+        return False
+
+    monkeypatch.setattr(core.auth, "verify_password", record_verify)
+    with session_scope() as session:
+        assert (
+            authenticate_user(
+                session,
+                email=user.email,
+                password="x" * 10_000,
+            )
+            is None
+        )
+        assert authenticate_user(session, email="x" * 10_000, password="wrong") is None
+
+    assert candidates == ["invalid-password-length", "wrong"]
 
 
 def test_register_requires_terms_acceptance():
