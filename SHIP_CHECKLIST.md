@@ -10,7 +10,7 @@ SQLite / guest-identity line remains only in Git history; do not restore it.
 
 ## Operator-owned boxes
 
-- [ ] **Stripe Dashboard:** create monthly recurring USD Starter ($12), Pro ($29), and Agency ($79) Prices (or update the displayed currency/copy in `core/plans.py` first). Copy the three `price_...` IDs — never Product IDs (`prod_...`). Create a least-privilege live restricted API key (`rk_live_...`). Enable the Customer Portal for plan changes, payment-method updates, and cancellation. **Limit customers to one subscription** as defense in depth; the app also reuses one persisted open Checkout per user. Subscribe these events at `https://YOUR_DOMAIN/webhooks/stripe`:
+- [ ] **Stripe Dashboard:** create a separate Product for Starter ($12), Pro ($29), and Agency ($79), each with its own monthly recurring USD Price (or update the displayed currency/copy in `core/plans.py` first). Copy the three `price_...` IDs — never Product IDs (`prod_...`). Create a least-privilege live restricted API key (`rk_live_...`). Enable the Customer Portal for plan changes, payment-method updates, and cancellation. **Limit customers to one subscription** as defense in depth; the app also reuses one persisted open Checkout per user. Subscribe these events at `https://YOUR_DOMAIN/webhooks/stripe`:
   - required: `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`
   - recommended: `invoice.payment_failed`, `invoice.paid`, `checkout.session.async_payment_failed`, `checkout.session.expired`
   - copy the `whsec_...` signing secret

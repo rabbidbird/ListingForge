@@ -24,6 +24,7 @@ services:
       PUBLIC_BASE_URL: http://localhost:8080
       SESSION_SECRET: local-development-session-secret-change-before-use
       SESSION_COOKIE_SECURE: "false"
+      STRIPE_WEBHOOK_SECRET: whsec_local-container-smoke-only
       PORT: "8080"
     ports:
       - "8080:8080"

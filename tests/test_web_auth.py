@@ -3,9 +3,11 @@ from __future__ import annotations
 import importlib
 import re
 
+from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
 from core.auth import get_user_by_session_token
+from core.config import reset_settings_cache
 from core.database import session_scope
 from core.models import User
 
@@ -118,3 +120,29 @@ def test_webhook_invalid_signature_is_rejected(monkeypatch):
         )
         assert response.status_code == 400
         assert "signature" in response.json()["detail"].lower()
+
+
+def test_health_rejects_database_behind_migration_head(monkeypatch):
+    web = _reload_web()
+    monkeypatch.setattr(web, "database_at_migration_head", lambda _session: False)
+    response = web.healthz()
+    assert isinstance(response, JSONResponse)
+    assert response.status_code == 503
+
+
+def test_production_trusted_hosts_come_from_public_origin(monkeypatch):
+    with monkeypatch.context() as production:
+        production.setenv("ENV", "production")
+        production.setenv("DATABASE_URL", "postgresql://user:pass@db/truedraft")
+        production.setenv("PUBLIC_BASE_URL", "https://drafts.example.com")
+        production.setenv("SESSION_SECRET", "a-unique-production-session-secret-2026")
+        production.setenv("SESSION_COOKIE_SECURE", "true")
+        reset_settings_cache()
+        web = _reload_web()
+        assert web._trusted_hosts() == ["drafts.example.com", "127.0.0.1", "localhost"]
+        with TestClient(web.app) as client:
+            rejected = client.get("/auth/login", headers={"host": "attacker.example"})
+            assert rejected.status_code == 400
+
+    reset_settings_cache()
+    _reload_web()

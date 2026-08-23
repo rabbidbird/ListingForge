@@ -56,6 +56,8 @@ jobs:
           docker compose ps
           docker compose logs
           exit 1
+      - name: Exercise auth, webhook idempotency, and WebSocket proxy
+        run: docker compose exec -T app python -m scripts.container_smoke
       - name: Stop stack
         if: always()
         run: docker compose down --volumes
