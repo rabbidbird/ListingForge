@@ -204,3 +204,101 @@ def test_overlong_llm_title_option_forces_template_fallback(monkeypatch):
     )
     assert result["meta"]["source"] == "template"
     assert "title exceeds platform limit" in result["meta"]["llm_rejection_reasons"]
+
+
+def test_llm_may_only_order_complete_source_phrase_ids(monkeypatch):
+    monkeypatch.setattr("core.generator.is_llm_available", lambda: True)
+    monkeypatch.setattr(
+        "core.generator.generate_with_llm",
+        lambda **_: {
+            "title_phrase_ids": [["keyword", "material"], ["product"]],
+            "tag_phrase_ids": ["keyword", "material"],
+            "description_feature_ids": ["feature_2", "feature_1"],
+            "meta": {"model": "mock"},
+        },
+    )
+
+    result = ListingGenerator(use_llm=True).generate_full_listing(
+        product_name="Studio Cup",
+        primary_keyword="ceramic studio cup",
+        material="white stoneware",
+        features=["Height: 4 inches", "Weight: 12 ounces"],
+        platform="etsy",
+    )
+
+    assert result["meta"]["source"] == "llm"
+    assert result["best_title"] == "ceramic studio cup | white stoneware"
+    assert result["tags"] == ["ceramic studio cup", "white stoneware"]
+    assert result["description"].index("Weight: 12 ounces") < result["description"].index(
+        "Height: 4 inches"
+    )
+
+
+def test_free_form_llm_cannot_reassociate_supplied_numbers(monkeypatch):
+    monkeypatch.setattr("core.generator.is_llm_available", lambda: True)
+    monkeypatch.setattr(
+        "core.generator.generate_with_llm",
+        lambda **_: {
+            "titles": ["Weight 10 In"],
+            "best_title": "Weight 10 In",
+            "description": "DRAFT weight 10 in length 2 lb",
+            "tags": ["weight", "length"],
+            "meta": {"model": "mock"},
+        },
+    )
+
+    result = ListingGenerator(use_llm=True).generate_full_listing(
+        product_name="Parcel",
+        features=["Weight 2 lb", "Length 10 in"],
+        platform="etsy",
+    )
+
+    assert result["meta"]["source"] == "template"
+    assert result["meta"]["llm_fact_lock_fallback"] is True
+    assert "free-form LLM output is not accepted" in " ".join(
+        result["meta"]["llm_rejection_reasons"]
+    )
+    assert "Weight 10 In" not in result["best_title"]
+
+
+def test_negated_unlisted_attribute_is_not_extracted_into_tags():
+    result = ListingGenerator(use_llm=False).generate_full_listing(
+        product_name="Not Washable Scarf",
+        platform="etsy",
+    )
+
+    assert result["tags"] == ["not washable scarf"]
+    assert "washable" not in result["tags"]
+    assert "washable scarf" not in result["tags"]
+
+
+def test_overlong_source_title_uses_neutral_draft_label_instead_of_truncation():
+    result = ListingGenerator(use_llm=False).generate_full_listing(
+        product_name="x" * 141,
+        platform="etsy",
+    )
+
+    assert result["best_title"] == "DRAFT Product Listing"
+    assert len(result["best_title"]) <= 140
+
+
+def test_source_measurement_signs_and_mixed_numbers_are_not_cosmetically_rewritten():
+    result = ListingGenerator(use_llm=False).generate_full_listing(
+        product_name="-5 Degree Panel 1 1/2 Inch",
+        platform="etsy",
+    )
+
+    assert "-5 Degree" in result["best_title"]
+    assert "1 1/2 Inch" in result["best_title"]
+    assert "-5 degree" in result["tags"]
+    assert "1 1/2" in result["tags"]
+
+
+def test_alphanumeric_identifier_casing_is_preserved_in_template_titles():
+    result = ListingGenerator(use_llm=False).generate_full_listing(
+        product_name="Model x100 Reader",
+        platform="etsy",
+    )
+
+    assert "x100" in result["best_title"]
+    assert "X100" not in result["best_title"]

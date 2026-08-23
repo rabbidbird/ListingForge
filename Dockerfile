@@ -26,4 +26,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl --fail "http://127.0.0.1:${PORT}/healthz" || exit 1
 
-CMD ["sh", "-c", "python -m core.migrate && envsubst '$PORT' < /app/deploy/nginx.conf.template > /tmp/truedraft-nginx.conf && exec supervisord -c /app/deploy/supervisord.conf"]
+CMD ["sh", "-c", "python -m core.migrate && envsubst '$PORT $RAILWAY_ENVIRONMENT_ID' < /app/deploy/nginx.conf.template > /tmp/truedraft-nginx.conf && nginx -t -c /tmp/truedraft-nginx.conf && exec supervisord -c /app/deploy/supervisord.conf"]

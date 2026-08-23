@@ -25,7 +25,9 @@ jobs:
       - name: Install locked dependencies
         run: python -m pip install -r requirements.txt
       - name: Apply migrations
-        run: python -m alembic upgrade head
+        run: |
+          python -m alembic upgrade head
+          python -m alembic check
       - name: Lint
         run: |
           ruff format --check .
@@ -56,8 +58,10 @@ jobs:
           docker compose ps
           docker compose logs
           exit 1
-      - name: Exercise auth, webhook idempotency, and WebSocket proxy
-        run: docker compose exec -T app python -m scripts.container_smoke
+      - name: Check production schema and exercise public edge flows
+        run: |
+          docker compose exec -T app python -m alembic check
+          docker compose exec -T app python -m scripts.container_smoke
       - name: Stop stack
         if: always()
         run: docker compose down --volumes

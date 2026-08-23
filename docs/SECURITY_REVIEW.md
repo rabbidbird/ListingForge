@@ -7,7 +7,7 @@ billing, generation controls, Docker/nginx runtime, and CI configuration.
 ## Executive summary
 
 No unresolved critical, high, or medium application-security findings remain in
-the reviewed v1 code. Five defense/proof gaps found during the final review were
+the reviewed v1 code. Nine defense/proof gaps found during the final review were
 fixed and covered by automated checks. `pip-audit 2.10.1 -r requirements.txt`
 reported no known vulnerabilities in the pinned dependency set at review time.
 
@@ -94,6 +94,90 @@ using `SHIP_CHECKLIST.md`.
 - **False-positive notes:** none; the initial container run reproduced the
   failure against the pinned SDK before this fix.
 
+### SEC-06 — output transformations could recombine facts or lose qualifiers
+
+- **Severity:** High (resolved)
+- **Location:** `core/llm.py:63` (`source_phrase_catalog`),
+  `core/generator.py:338,440,518,524`, `tests/test_fact_lock.py`
+- **Evidence:** the optional model now returns only opaque IDs for complete
+  supplied phrases. Deterministic code validates every ID, renders fixed
+  separators and description labels, and rejects all legacy/free-form prose.
+  Negative phrases are not split into shorter tags, and over-limit titles/tags
+  are skipped rather than truncated. Signed and mixed-number measurements are
+  no longer altered by punctuation trimming or repeated-token cleanup.
+- **Impact before fix:** a vocabulary-only validator could accept the same
+  supplied words and numbers after a model paired a measurement with the wrong
+  attribute, creating a new factual relationship without adding vocabulary.
+  Generic negative input could also lose its qualifier during tag extraction or
+  length truncation even when the adjective was not on a prohibited-term list;
+  cosmetic cleanup could turn `-5` into `5` or `1 1/2` into `1/2`.
+- **Fix:** remove free-form model prose from the output trust boundary, preserve
+  complete phrase polarity and numeric notation, and add regressions for swapped
+  measurements, signed/mixed values, unlisted negative attributes, and
+  over-limit source text.
+- **Mitigation:** model use remains disabled by default, capped per user, bounded
+  by timeout/tokens, and protected by an operator kill switch.
+- **False-positive notes:** none; phrase selection can change ordering but cannot
+  rewrite, split, or invent the text associated with an ID.
+
+### SEC-07 — anonymous surfaces lacked client and global edge ceilings
+
+- **Severity:** Low (resolved)
+- **Location:** `deploy/nginx.conf.template:25-35`,
+  `tests/test_public_surface.py`
+- **Evidence:** nginx now applies per-client and container-wide request and
+  connection zones at the `server` boundary, covering Streamlit, auth, health,
+  and webhook routes. On Railway, the client key comes from its injected
+  `X-Real-IP` only when a valid edge marker and Railway's server-side
+  `RAILWAY_ENVIRONMENT_ID` are both present; direct/local traffic ignores
+  forwarding headers and uses nginx's peer address.
+- **Impact before fix:** only authentication had an application soft limit; a
+  high-rate anonymous client could still consume Streamlit/container capacity.
+- **Fix:** preserve Railway's client address through nginx, add fair per-client
+  soft limits, and retain a deliberately generous global ceiling with HTTP 429
+  responses as a backstop.
+- **Mitigation:** auth keeps its tighter bounded per-source limiter; use a shared
+  WAF/edge limiter before horizontal scaling. Deployments outside Railway must
+  configure their own trusted proxy boundary rather than setting Railway system
+  variables.
+- **False-positive notes:** this is an instance-local soft control, not a promise
+  of distributed denial-of-service protection. The supported deployment must
+  expose port 8080 only through Railway HTTP Public Networking; a direct app TCP
+  Proxy would invalidate the forwarded-header trust boundary.
+
+### SEC-08 — exported CSV cells could be interpreted as formulas
+
+- **Severity:** Medium (resolved)
+- **Location:** `core/utils.py:30` (`spreadsheet_safe_text`), `tests/test_csv.py`
+- **Evidence:** every string cell in generated CSV exports is prefixed with an
+  apostrophe when its first meaningful character is `=`, `+`, `-`, or `@` (or a
+  tab/carriage return prefix).
+- **Impact before fix:** a formula-looking value supplied in product fields could
+  execute spreadsheet functionality when a recipient opened the exported CSV.
+- **Fix:** neutralize formula prefixes at the export boundary without changing
+  saved draft content or JSON exports.
+- **Mitigation:** exports remain behind the three-point human confirmation.
+- **False-positive notes:** legitimate values beginning with these characters
+  display with a protective apostrophe in spreadsheet software.
+
+### SEC-09 — migration metadata and the deployed uniqueness index could drift
+
+- **Severity:** Low (resolved)
+- **Location:** `core/models.py:124` (`Subscription.__table_args__`),
+  `.github/workflows/ci.yml:31`
+- **Evidence:** SQLAlchemy now declares the same named unique index created by
+  Alembic, and CI runs `alembic check` immediately after applying migrations.
+- **Impact before fix:** the database still enforced uniqueness, but autogenerate
+  detected an index/constraint mismatch and future schema work could accidentally
+  emit destructive churn instead of a clean migration.
+- **Fix:** align model metadata with the existing migration and fail CI whenever
+  model metadata would require an undeclared upgrade operation.
+- **Mitigation:** `/healthz` independently requires the exact deployed Alembic
+  head before the container receives traffic.
+- **False-positive notes:** SQLite cannot reflect the expression index used for
+  case-insensitive email uniqueness and emits a documented warning; it reports
+  no upgrade operation. PostgreSQL is the production database.
+
 ## Existing controls verified
 
 - Argon2 passwords; opaque random session tokens stored only as keyed hashes;
@@ -107,7 +191,8 @@ using `SHIP_CHECKLIST.md`.
   signature verification before event processing, transactional event IDs, and
   configured-Price entitlement mapping.
 - CSV size/type/row validation, per-plan bulk caps, per-row failure isolation,
-  LLM timeout/token/user caps, kill switch, and source-vocabulary rejection.
+  formula-safe exports, LLM timeout/token/user caps, kill switch, and
+  complete-source-phrase ID rendering instead of free-form model prose.
 - Non-root pinned container, request-size ceiling, security headers, secret-file
   ignores, GitHub secret-scanning push protection, Dependabot alerts/security
   updates, and protected `main` checks.
@@ -118,8 +203,9 @@ using `SHIP_CHECKLIST.md`.
    in Railway's secret manager; never send them through chat or commit them.
 2. Restrict Stripe key access where Railway egress permits, require passkeys or
    authenticator-app 2FA for Dashboard users, and test key rotation.
-3. Verify the final domain/TLS, Railway backups/restore procedure, log retention,
-   webhook signing secret, Customer Portal, and live downgrade behavior.
+3. Verify the final domain/TLS, confirm the app has no TCP Proxy/direct origin,
+   and verify Railway backups/restore, log retention, webhook signing secret,
+   Customer Portal, and live downgrade behavior.
 4. Assess tax registrations before enabling Stripe Tax. Automatic tax does not
    collect tax in jurisdictions where the operator has no active registration.
 5. Replace every legal placeholder and complete the live signup/payment smoke in

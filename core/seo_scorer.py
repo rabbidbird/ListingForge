@@ -33,9 +33,15 @@ class SEOScorer:
         if 1 <= length <= limit:
             score += 30
         else:
-            feedback.append(
-                f"Title exceeds the current {platform.title()} checklist limit ({limit})."
-            )
+            if platform == "shopify":
+                feedback.append(
+                    "Title exceeds TrueDraft's 70-character Shopify SEO-title target; "
+                    "this is not presented as a universal product-title hard limit."
+                )
+            else:
+                feedback.append(
+                    f"Title exceeds the current {platform.title()} checklist limit ({limit})."
+                )
 
         word_count = len(re.findall(r"\b\w+\b", title))
         if platform == "etsy" and word_count <= 15:
