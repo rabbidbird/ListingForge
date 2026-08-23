@@ -14,8 +14,8 @@ SQLite / guest-identity line remains only in Git history; do not restore it.
   - required: `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`
   - recommended: `invoice.payment_failed`, `invoice.paid`, `checkout.session.async_payment_failed`, `checkout.session.expired`
   - copy the `whsec_...` signing secret
-- [ ] **Secrets and database:** add Railway PostgreSQL and set every required production variable from `.env.example`. `ENV=production` (already the image default). Unique 32+ character `SESSION_SECRET` that is not a documented example. `SESSION_COOKIE_SECURE=true`. Separate Stripe credentials (`STRIPE_API_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_STARTER`, `STRIPE_PRICE_PRO`, `STRIPE_PRICE_AGENCY`). Do not set `LISTINGFORGE_*`, `TRUEDRAFT_SKIP_AUTH`, `STRIPE_SUCCESS_URL`, or `STRIPE_CANCEL_URL`. Leave LLM disabled unless a provider key, model, caps, and data-processing terms are approved. Keep `EMAIL_VERIFICATION_REQUIRED=false` until an email adapter exists.
-- [ ] **Domain:** attach the production domain, complete DNS/TLS, and set `PUBLIC_BASE_URL` to the final `https://` origin (not localhost, not `http://`). Derived URLs that must work after this:
+- [ ] **Secrets and database:** add Railway PostgreSQL and set every required production variable from `.env.example`. `ENV=production` (already the image default). Unique 32+ character `SESSION_SECRET` that is not a documented example. `SESSION_COOKIE_SECURE=true`. Separate Stripe credentials (`STRIPE_API_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_STARTER`, `STRIPE_PRICE_PRO`, `STRIPE_PRICE_AGENCY`). Do not set `LISTINGFORGE_*`, `TRUEDRAFT_SKIP_AUTH`, `STRIPE_SUCCESS_URL`, or `STRIPE_CANCEL_URL`. Leave LLM disabled unless a provider key, model, caps, and data-processing terms are approved; the model only orders complete source-phrase IDs and free-form prose is rejected. Keep `EMAIL_VERIFICATION_REQUIRED=false` until an email adapter exists.
+- [ ] **Domain:** expose port 8080 only through Railway HTTP Public Networking (no app TCP Proxy or direct public origin), attach the production domain, complete DNS/TLS, and set `PUBLIC_BASE_URL` to the final `https://` origin (not localhost, not `http://`). Derived URLs that must work after this:
   - `https://YOUR_DOMAIN/healthz`
   - `https://YOUR_DOMAIN/webhooks/stripe`
   - `https://YOUR_DOMAIN/About_Pricing?checkout=success`
@@ -26,7 +26,7 @@ SQLite / guest-identity line remains only in Git history; do not restore it.
 
 Use **test-mode Stripe first**. Do not point live Price IDs and a live key at a public domain until step 9.
 
-1. Create the Railway project from this repo. Add Railway PostgreSQL and expose `DATABASE_URL`.
+1. Create the Railway project from this repo. Add Railway PostgreSQL and expose `DATABASE_URL`. Use Railway HTTP Public Networking for the app; do not create an app TCP Proxy.
 2. Set production variables. For the first deploy, Stripe values may be **test-mode** (`rk_test_...` / `sk_test_...`, test `price_...`, test `whsec_...`). Still set `ENV=production`, a unique `SESSION_SECRET`, `SESSION_COOKIE_SECURE=true`, and a temporary `PUBLIC_BASE_URL` of the Railway HTTPS origin.
 3. Deploy. `/healthz` must return ok. If the container will not start, read the boot logs — production fail-closed refuses SQLite, documented secrets, and localhost URLs.
 4. Attach the custom domain, finish DNS/TLS, set `PUBLIC_BASE_URL=https://YOUR_DOMAIN`, redeploy.

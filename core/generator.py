@@ -1,7 +1,8 @@
 """Fact-locked draft listing generator.
 
-Only user-supplied product attributes may appear. The optional LLM path is
-discarded wholesale if strict source-vocabulary validation fails.
+Only user-supplied product attributes may appear. The optional LLM may order
+opaque IDs for complete supplied phrases; deterministic code renders the text,
+and every free-form or invalid response falls back to templates.
 """
 
 from __future__ import annotations
@@ -9,7 +10,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .llm import generate_with_llm, is_llm_available
+from .llm import generate_with_llm, is_llm_available, source_phrase_catalog
 from .seo_scorer import SEOScorer
 
 PLATFORM_TITLE_LIMITS = {"etsy": 140, "shopify": 70, "amazon": 75}
@@ -252,13 +253,16 @@ class ListingGenerator:
 
     @staticmethod
     def _clean_text(text: str) -> str:
-        text = re.sub(r"\s+", " ", str(text)).strip(" -|")
-        return re.sub(r"\b(\w+)\s+\1\b", r"\1", text, flags=re.IGNORECASE).strip()
+        # Whitespace normalization is safe; punctuation trimming or repeated-word
+        # removal is not. For example, `-5` and `1 1/2` are supplied facts.
+        return re.sub(r"\s+", " ", str(text)).strip()
 
     @staticmethod
     def _smart_title(text: str) -> str:
         return " ".join(
-            word if any(char.isupper() for char in word[1:]) else word.capitalize()
+            word
+            if not word.isalpha() or any(char.isupper() for char in word[1:])
+            else word.capitalize()
             for word in text.split()
         )
 
@@ -335,6 +339,110 @@ class ListingGenerator:
             failures.append("Etsy tag exceeds 20 characters")
         return failures
 
+    def _render_llm_phrase_plan(
+        self,
+        result: dict[str, Any],
+        *,
+        product_name: str,
+        primary_keyword: str,
+        material: str,
+        audience: str,
+        features: list[str],
+        extra_keywords: list[str],
+        platform: str,
+    ) -> tuple[dict[str, Any] | None, list[str]]:
+        """Render only complete allowlisted phrases selected by opaque model IDs."""
+
+        catalog = source_phrase_catalog(
+            product_name=product_name,
+            primary_keyword=primary_keyword,
+            material=material,
+            audience=audience,
+            features=features,
+            extra_keywords=extra_keywords,
+        )
+        title_groups = result.get("title_phrase_ids")
+        tag_ids = result.get("tag_phrase_ids")
+        feature_ids = result.get("description_feature_ids", [])
+        failures: list[str] = []
+        if not isinstance(title_groups, list) or not title_groups:
+            failures.append("LLM phrase plan has no title arrangements")
+            title_groups = []
+        if not isinstance(tag_ids, list):
+            failures.append("LLM phrase plan tags are invalid")
+            tag_ids = []
+        if not isinstance(feature_ids, list):
+            failures.append("LLM phrase plan feature order is invalid")
+            feature_ids = []
+
+        allowed_ids = set(catalog)
+
+        def valid_ids(values: Any, *, maximum: int) -> list[str] | None:
+            if not isinstance(values, list) or not 1 <= len(values) <= maximum:
+                return None
+            if not all(isinstance(value, str) and value in allowed_ids for value in values):
+                return None
+            return list(dict.fromkeys(values))
+
+        title_limit = PLATFORM_TITLE_LIMITS.get(platform, 70)
+        titles: list[str] = []
+        for group in title_groups[:5]:
+            ids = valid_ids(group, maximum=4)
+            if ids is None or not ({"product", "keyword"} & set(ids)):
+                failures.append("LLM title arrangement contains invalid or incomplete phrase IDs")
+                continue
+            # Keep selected source phrases byte-for-byte apart from safe
+            # whitespace normalization and the fixed neutral separator.
+            title = self._clean_text(" | ".join(catalog[value] for value in ids))
+            if len(title) > title_limit:
+                failures.append("LLM phrase title exceeds platform limit")
+                continue
+            if title and title.casefold() not in {value.casefold() for value in titles}:
+                titles.append(title)
+
+        clean_tag_ids = valid_ids(tag_ids[:13], maximum=13) if tag_ids else []
+        if clean_tag_ids is None:
+            failures.append("LLM tag selection contains an unknown phrase ID")
+            clean_tag_ids = []
+        tags: list[str] = []
+        for phrase_id in clean_tag_ids:
+            tag = self._fit_tag(catalog[phrase_id], platform)
+            if tag and tag not in tags:
+                tags.append(tag)
+
+        ordered_features: list[str] = []
+        for phrase_id in feature_ids:
+            if not isinstance(phrase_id, str) or not phrase_id.startswith("feature_"):
+                failures.append("LLM feature order contains a non-feature phrase ID")
+                continue
+            if phrase_id not in catalog:
+                failures.append("LLM feature order contains an unknown phrase ID")
+                continue
+            value = catalog[phrase_id]
+            if value not in ordered_features:
+                ordered_features.append(value)
+        ordered_features.extend(value for value in features if value not in ordered_features)
+
+        if not titles:
+            failures.append("LLM phrase plan produced no valid title")
+        if failures:
+            return None, sorted(set(failures))
+        description = self.generate_description(
+            product_name,
+            primary_keyword,
+            ordered_features,
+            material=material,
+            audience=audience,
+        )
+        result_meta = result.get("meta")
+        return {
+            "titles": titles,
+            "best_title": titles[0],
+            "description": description,
+            "tags": tags,
+            "meta": result_meta if isinstance(result_meta, dict) else {},
+        }, []
+
     def generate_title(
         self,
         product_name: str,
@@ -365,10 +473,10 @@ class ListingGenerator:
         for variant in variants:
             value = self._smart_title(self._clean_text(variant))
             if len(value) > maximum:
-                value = value[:maximum].rsplit(" ", 1)[0].rstrip(" -|")
+                continue
             if value and value.lower() not in {existing.lower() for existing in cleaned}:
                 cleaned.append(value)
-        return cleaned[:5] or [self._smart_title(keyword)]
+        return cleaned[:5] or ["DRAFT Product Listing"]
 
     def generate_description(
         self,
@@ -414,9 +522,9 @@ class ListingGenerator:
 
     @staticmethod
     def _fit_tag(tag: str, platform: str) -> str:
-        value = re.sub(r"\s+", " ", tag.lower()).strip(" -'")
+        value = re.sub(r"\s+", " ", tag.lower()).strip()
         if platform == "etsy" and len(value) > 20:
-            value = value[:20].rsplit(" ", 1)[0].strip(" -'")
+            return ""
         return value
 
     def generate_tags(
@@ -450,8 +558,17 @@ class ListingGenerator:
             extra_keywords=extra_keywords or [],
         )
 
-        # Source-grounded subphrases help fill available slots without inventing attributes.
+        # Source-grounded subphrases help fill available slots. Never extract a
+        # shorter affirmative phrase from a supplied negative statement.
         for phrase in [product, keyword, *(extra_keywords or [])]:
+            phrase_words = {
+                word.casefold()
+                for word in re.findall(r"[a-z]+(?:'[a-z]+)?", phrase, flags=re.IGNORECASE)
+            }
+            if phrase_words & NEGATION_WORDS or re.search(
+                r"(?:[:=\-–—]\s*|\(\s*)(?:false|no|none|not|0)\b", phrase, flags=re.IGNORECASE
+            ):
+                continue
             words = phrase.split()
             candidates.extend(" ".join(words[index : index + 2]) for index in range(len(words) - 1))
             candidates.extend(words)
@@ -505,9 +622,24 @@ class ListingGenerator:
                 platform=platform,
             )
             if candidate:
-                fact_lock_rejections = self._validate_llm_result(candidate, source_blob, platform)
-                if not fact_lock_rejections:
-                    llm_result = candidate
+                if "title_phrase_ids" in candidate:
+                    llm_result, fact_lock_rejections = self._render_llm_phrase_plan(
+                        candidate,
+                        product_name=product_name,
+                        primary_keyword=primary_keyword,
+                        material=material,
+                        audience=audience,
+                        features=features,
+                        extra_keywords=extra_keywords,
+                        platform=platform,
+                    )
+                else:
+                    fact_lock_rejections = self._validate_llm_result(
+                        candidate, source_blob, platform
+                    )
+                    fact_lock_rejections.append(
+                        "free-form LLM output is not accepted; source phrase IDs are required"
+                    )
 
         if llm_result:
             titles = llm_result.get("titles") or [llm_result["best_title"]]

@@ -179,3 +179,23 @@ def test_readme_stripe_versions_match_the_pinned_integration():
     )
     assert STRIPE_API_VERSION in readme
     assert f"Stripe Python `{pinned_stripe}`" in readme
+
+
+def test_nginx_applies_client_and_global_soft_limits_to_all_public_routes():
+    config = Path("deploy/nginx.conf.template").read_text(encoding="utf-8")
+    dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
+    server = config.split("server {", 1)[1]
+    assert 'map "${RAILWAY_ENVIRONMENT_ID}:$http_x_railway_edge:$http_x_real_ip"' in config
+    assert 'map "${RAILWAY_ENVIRONMENT_ID}:$http_x_railway_edge:$http_x_forwarded_proto"' in config
+    assert "envsubst '$PORT $RAILWAY_ENVIRONMENT_ID'" in dockerfile
+    assert "limit_req_zone $truedraft_client_ip zone=truedraft_client_requests" in config
+    assert "limit_conn_zone $truedraft_client_ip zone=truedraft_client_connections" in config
+    assert "limit_req_zone $server_name zone=truedraft_global_requests" in config
+    assert "limit_conn_zone $server_name zone=truedraft_global_connections" in config
+    assert "limit_req zone=truedraft_client_requests" in server
+    assert "limit_req zone=truedraft_global_requests" in server
+    assert "limit_conn truedraft_client_connections" in server
+    assert "limit_conn truedraft_global_connections" in server
+    assert "proxy_set_header X-Real-IP $truedraft_client_ip" in server
+    assert "proxy_set_header X-Forwarded-Proto $truedraft_client_proto" in server
+    assert "limit_req_status 429" in config

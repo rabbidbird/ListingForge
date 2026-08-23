@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.0.7 invariant and edge hardening — 2026-08-23
+
+- Removed free-form LLM prose from the output trust boundary. The optional model can now select and order only opaque IDs for complete supplied phrases; deterministic code renders the result and invalid/free-form responses fall back to templates.
+- Prevented generic negation loss and lossy cosmetic edits: negative phrases are never split into affirmative tags, over-limit titles/tags are skipped instead of cutting away qualifying context, and signed or mixed-number measurements remain unchanged.
+- Added per-client nginx request/connection soft limits using Railway's injected client IP only inside the documented Railway HTTP-edge trust boundary, preserved the public HTTPS scheme to upstream processes, and added a container-wide backstop for every anonymous surface plus the tighter bounded authentication limiter.
+- Container startup now validates the rendered nginx configuration before starting processes, and the production-shaped CI stack checks Alembic metadata against PostgreSQL.
+- Neutralized spreadsheet-formula prefixes in CSV exports and added regressions for phrase reassociation, generic negation, over-limit source text, edge limits, and formula-looking cells.
+- Aligned the pending-Checkout uniqueness index with Alembic metadata and made `alembic check` a required CI schema-drift gate.
+- Added a dated first-party platform-rules record and clarified that Shopify's 70-character value is an SEO-title target rather than a universal product-title limit.
+
 ## v1.0.6 final review hardening — 2026-08-23
 
 - Negated supplied claims remain negated: phrases such as “not waterproof” can no longer be shortened into affirmative `waterproof` tags or LLM copy.

@@ -13,11 +13,12 @@ The paid TrueDraft v1 path is now the canonical `main` branch. An earlier local 
 The logged-out home is a conversion landing page (promise, how it works, trust, plan teaser). It does not invent testimonials, user counts, or marketplace-publish claims. Signed-in users still see plan/usage metrics and draft actions.
 
 TrueDraft never promises ranking, conversion, or sales. Its scores are transparent heuristic checklists only.
+The dated first-party sources and qualifications behind the small platform checklist are recorded in [docs/PLATFORM_RULES.md](docs/PLATFORM_RULES.md); users must verify current category rules before publishing.
 
 ## Safety invariants
 
 - Product facts such as materials, dimensions, origin, certifications, ratings, scarcity, and shipping claims must come from user input.
-- An optional LLM is disabled by default. When enabled, it has per-user caps, a timeout, a token ceiling, a kill switch, and a strict source-vocabulary validator. Rejected output falls back to deterministic templates.
+- An optional LLM is disabled by default. When enabled, it has per-user caps, a timeout, a token ceiling, and a kill switch. The model may select and order only opaque IDs for complete supplied phrases; deterministic code renders the draft, and invalid plans fall back to templates. Free-form model prose never reaches output.
 - Every generation and export displays **DRAFT — verify before publishing**.
 - Every listing read, update, delete, and export is filtered by `user_id` on the server.
 - Production refuses SQLite, insecure session configuration, documented default secrets, and localhost public URLs.
@@ -43,6 +44,8 @@ No plan is unlimited.
 - nginx exposes both processes on one origin and proxies Streamlit WebSockets.
 - SQLAlchemy and Alembic manage PostgreSQL. SQLite is allowed only with `ENV=development` or `ENV=test`.
 - Stripe-hosted Checkout and Customer Portal handle payment UI; verified, idempotent webhooks control entitlements.
+
+nginx applies per-client request/connection limits using Railway's injected client IP plus a generous container-wide backstop on every public route. Authentication also has a tighter bounded per-source soft limit in FastAPI; add a shared edge/WAF limiter before horizontal scaling.
 
 Minimum tables are `users`, `listings`, `usage_events`, and `subscriptions`; v1 also uses `user_sessions` and `webhook_events`.
 
@@ -73,7 +76,7 @@ The paid TrueDraft path is already on `main`. Use **test-mode Stripe first**.
 The numbered order in [SHIP_CHECKLIST.md](SHIP_CHECKLIST.md) is authoritative
 if anything here disagrees.
 
-1. Create a Railway project from the repository. Railway will use `railway.toml` and the root `Dockerfile`.
+1. Create a Railway project from the repository. Railway will use `railway.toml` and the root `Dockerfile`. Expose the app only through Railway HTTP Public Networking; do not add a TCP Proxy or another direct public route to container port 8080.
 2. Add a Railway PostgreSQL service and expose its `DATABASE_URL` to the TrueDraft service.
 3. In Stripe **test** mode, create one Product per plan, each with one monthly recurring USD Price matching the displayed copy: Starter $12, Pro $29, and Agency $79. Copy the `price_...` IDs (never `prod_...`). Create the separate live Products/Prices later, at the live switch, only after the test-mode Checkout cycle passes.
 4. Create a least-privilege Stripe restricted API key for the Checkout, Customer, Subscription, and Billing Portal operations used here. Start with `rk_test_...` / `sk_test_...`. Do not put keys in Git.

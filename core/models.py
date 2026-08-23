@@ -123,6 +123,13 @@ class UsageEvent(Base):
 
 class Subscription(Base):
     __tablename__ = "subscriptions"
+    __table_args__ = (
+        Index(
+            "uq_subscriptions_pending_checkout_session_id",
+            "pending_checkout_session_id",
+            unique=True,
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(
@@ -137,7 +144,7 @@ class Subscription(Base):
     stripe_customer_id: Mapped[str | None] = mapped_column(String(255), unique=True, index=True)
     stripe_subscription_id: Mapped[str | None] = mapped_column(String(255), unique=True, index=True)
     stripe_price_id: Mapped[str | None] = mapped_column(String(255))
-    pending_checkout_session_id: Mapped[str | None] = mapped_column(String(255), unique=True)
+    pending_checkout_session_id: Mapped[str | None] = mapped_column(String(255))
     pending_checkout_url: Mapped[str | None] = mapped_column(Text)
     pending_checkout_plan: Mapped[str | None] = mapped_column(String(24))
     pending_checkout_expires_at: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

@@ -27,6 +27,16 @@ def clean_optional_text(value: Any) -> str:
     return re.sub(r"\s+", " ", text)
 
 
+def spreadsheet_safe_text(value: str) -> str:
+    """Prevent user-supplied CSV cells from being interpreted as formulas."""
+
+    text = str(value)
+    stripped = text.lstrip()
+    if text.startswith(("\t", "\r")) or (stripped and stripped[0] in "=+-@"):
+        return "'" + text
+    return text
+
+
 def _new_listing(user_id: uuid.UUID, result: dict[str, Any]) -> Listing:
     overall = result["scores"]["overall"]
     return Listing(
@@ -159,23 +169,25 @@ def delete_listing(user_id: uuid.UUID, listing_id: str | uuid.UUID) -> bool:
 def export_to_dataframe(results: list[dict[str, Any]]) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
     for result in results:
+        row: dict[str, Any] = {
+            "Product Name": clean_optional_text(result["meta"]["product_name"]),
+            "Primary Keyword": clean_optional_text(result["meta"]["primary_keyword"]),
+            "Platform": clean_optional_text(result["platform"]),
+            "Best Title": clean_optional_text(result["best_title"]),
+            "Title Options": " | ".join(clean_optional_text(title) for title in result["titles"]),
+            "Description": str(result["description"]),
+            "Tags": ", ".join(clean_optional_text(tag) for tag in result["tags"]),
+            "Overall Score": result["scores"]["overall"]["overall"],
+            "Grade": result["scores"]["overall"]["grade"],
+            "Title Score": result["scores"]["title"]["score"],
+            "Description Score": result["scores"]["description"]["score"],
+            "Tags Score": result["scores"]["tags"]["score"],
+            "Draft Disclaimer": result["disclaimer"],
+        }
         rows.append(
             {
-                "Product Name": clean_optional_text(result["meta"]["product_name"]),
-                "Primary Keyword": clean_optional_text(result["meta"]["primary_keyword"]),
-                "Platform": clean_optional_text(result["platform"]),
-                "Best Title": clean_optional_text(result["best_title"]),
-                "Title Options": " | ".join(
-                    clean_optional_text(title) for title in result["titles"]
-                ),
-                "Description": str(result["description"]),
-                "Tags": ", ".join(clean_optional_text(tag) for tag in result["tags"]),
-                "Overall Score": result["scores"]["overall"]["overall"],
-                "Grade": result["scores"]["overall"]["grade"],
-                "Title Score": result["scores"]["title"]["score"],
-                "Description Score": result["scores"]["description"]["score"],
-                "Tags Score": result["scores"]["tags"]["score"],
-                "Draft Disclaimer": result["disclaimer"],
+                key: spreadsheet_safe_text(value) if isinstance(value, str) else value
+                for key, value in row.items()
             }
         )
     return pd.DataFrame(rows)
