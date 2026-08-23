@@ -7,6 +7,7 @@
 - Checkout uses an instance-scoped Stripe client and the current pinned API version. One expiring open Checkout is persisted per user, reused on repeated clicks, and released by terminal Checkout webhooks.
 - Built-in Streamlit dataframe export/copy controls are disabled so CSV downloads remain behind the confirmation checklist; the incompatible CORS override was removed.
 - Added the pending-Checkout Alembic migration and regression coverage for claim polarity, live-payment gates, duplicate Checkout prevention, and export configuration.
+- CI now uses the current Node 24-based official checkout/setup actions and avoids duplicate push + pull-request runs on feature branches.
 
 ## v1.0.5 public landing and pricing story — 2026-08-19
 

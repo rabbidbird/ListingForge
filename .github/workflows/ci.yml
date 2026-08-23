@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -16,8 +17,8 @@ jobs:
       SESSION_SECRET: ci-session-secret-with-at-least-32-characters
       LLM_ENABLED: "false"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
         with:
           python-version: "3.11.13"
           cache: pip
@@ -40,7 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
       - name: Build and start production-shaped stack
         run: docker compose up --build --detach
       - name: Wait for HTTP health check
