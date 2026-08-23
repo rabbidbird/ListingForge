@@ -185,8 +185,10 @@ using `SHIP_CHECKLIST.md`.
   `tests/test_web_auth.py`, `tests/test_launch_check.py`
 - **Evidence:** CodeQL default setup identified exception-to-response and
   exception-to-output flows. Authentication, webhook verification, and invalid
-  launch configuration now return fixed messages; regression tests inject
-  secret-like exception content and require that it remains absent.
+  launch configuration now return fixed messages. The session-secret hardening
+  result remains part of the readiness gate but is not interpolated into console
+  output. Regression tests inject secret-like content and require that it
+  remains absent.
 - **Impact before fix:** current exceptions were normally concise validation
   messages, but a future lower-level exception with internal details could have
   been reflected to an unauthenticated client or launch logs.

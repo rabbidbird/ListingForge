@@ -392,7 +392,6 @@ def render_report(report: dict[str, Any]) -> str:
         lines.append(f"  database dialect: {checks.get('database_dialect', 'unknown')}")
         lines.append(f"  public base url: {checks.get('public_base_url', '')}")
         lines.append(f"  cookie secure: {checks.get('cookie_secure', False)}")
-        lines.append(f"  session secret hardened: {checks.get('session_secret_hardened', False)}")
         lines.append(f"  stripe key kind: {checks.get('stripe_key_kind', 'missing')}")
         lines.append(f"  webhook url: {checks.get('webhook_url', '')}")
         lines.append(f"  portal return url: {checks.get('portal_return_url', '')}")

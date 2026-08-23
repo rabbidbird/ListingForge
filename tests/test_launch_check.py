@@ -49,6 +49,7 @@ def test_launch_check_does_not_print_secrets(monkeypatch):
     assert "sk_test_this_must_not_be_printed" not in rendered
     assert "whsec_this_must_not_be_printed" not in rendered
     assert "test-session-secret-with-at-least-32-characters" not in rendered
+    assert "session secret hardened" not in rendered
     assert "stripe key kind: test_secret" in rendered
     assert "next:" in rendered
 
