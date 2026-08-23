@@ -7,7 +7,7 @@ billing, generation controls, Docker/nginx runtime, and CI configuration.
 ## Executive summary
 
 No unresolved critical, high, or medium application-security findings remain in
-the reviewed v1 code. Nine defense/proof gaps found during the final review were
+the reviewed v1 code. Ten defense/proof gaps found during the final review were
 fixed and covered by automated checks. `pip-audit 2.10.1 -r requirements.txt`
 reported no known vulnerabilities in the pinned dependency set at review time.
 
@@ -178,6 +178,27 @@ using `SHIP_CHECKLIST.md`.
   case-insensitive email uniqueness and emits a documented warning; it reports
   no upgrade operation. PostgreSQL is the production database.
 
+### SEC-10 — exception text could cross response and launch-output boundaries
+
+- **Severity:** High (resolved)
+- **Location:** `core/web.py:204,258,312`, `scripts/launch_check.py:178`,
+  `tests/test_web_auth.py`, `tests/test_launch_check.py`
+- **Evidence:** CodeQL default setup identified exception-to-response and
+  exception-to-output flows. Authentication, webhook verification, and invalid
+  launch configuration now return fixed messages; regression tests inject
+  secret-like exception content and require that it remains absent.
+- **Impact before fix:** current exceptions were normally concise validation
+  messages, but a future lower-level exception with internal details could have
+  been reflected to an unauthenticated client or launch logs.
+- **Fix:** discard exception strings at these trust boundaries and preserve only
+  stable, actionable public messages.
+- **Mitigation:** detailed billing outcomes continue to use structured logs that
+  omit emails, credentials, and payloads; launch checks report the failing gate
+  without printing configuration values.
+- **False-positive notes:** the alert paths were reachable even though current
+  exception messages did not include stack traces. Treating them as genuine
+  boundary weaknesses prevents future exception-content regressions.
+
 ## Existing controls verified
 
 - Argon2 passwords; opaque random session tokens stored only as keyed hashes;
@@ -195,7 +216,8 @@ using `SHIP_CHECKLIST.md`.
   complete-source-phrase ID rendering instead of free-form model prose.
 - Non-root pinned container, request-size ceiling, security headers, secret-file
   ignores, GitHub secret-scanning push protection, Dependabot alerts/security
-  updates, and protected `main` checks.
+  updates, CodeQL default scanning for Python and Actions, and protected `main`
+  checks.
 
 ## Operator security checks before public traffic
 

@@ -156,15 +156,24 @@ def test_launch_check_warns_about_legacy_main_vars(monkeypatch):
     assert any("Legacy main-branch" in item for item in report["warnings"])
 
 
-def test_launch_check_surfaces_config_errors_instead_of_raising(monkeypatch):
+def test_launch_check_surfaces_config_errors_instead_of_raising(monkeypatch, capsys):
+    sensitive_marker = "postgresql://operator:sensitive-password@private-db/truedraft"
+
+    def fail_settings():
+        raise RuntimeError(sensitive_marker)
+
     monkeypatch.setenv("ENV", "production")
-    monkeypatch.setenv("DATABASE_URL", "sqlite:///unsafe.db")
-    reset_settings_cache()
+    monkeypatch.setattr(launch_check, "get_settings", fail_settings)
     report = launch_report()
-    assert report["config_error"]
+    rendered = render_report(report)
+    assert report["config_error"] == (
+        "Application configuration is invalid. Review the required environment values."
+    )
+    assert sensitive_marker not in rendered
     assert report["ready_for_public_traffic"] is False
     assert "Fix the production configuration error" in report["next_operator_action"]
     assert main([]) == 1
+    assert sensitive_marker not in capsys.readouterr().out
 
 
 def test_non_production_launch_check_exits_zero_unless_strict(monkeypatch):

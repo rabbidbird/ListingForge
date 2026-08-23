@@ -175,16 +175,19 @@ def launch_report() -> dict[str, Any]:
     try:
         reset_settings_cache()
         settings = get_settings()
-    except RuntimeError as exc:
+    except RuntimeError:
         environment = os.getenv("ENV", "development").strip().lower() or "development"
         remaining = remaining_legal_placeholders()
-        blockers = [str(exc)]
+        config_error = (
+            "Application configuration is invalid. Review the required environment values."
+        )
+        blockers = [config_error]
         if remaining:
             blockers.append("Legal placeholders remain: " + ", ".join(remaining))
         report = {
             "environment": environment,
             "production": environment == "production",
-            "config_error": str(exc),
+            "config_error": config_error,
             "stripe_fully_configured": False,
             "llm_enabled": False,
             "legal_placeholders": remaining,

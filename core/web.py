@@ -201,11 +201,11 @@ def login(
             if user is None:
                 raise AuthError("Email or password is incorrect.")
             token = create_user_session(session, user.id)
-    except AuthError as exc:
+    except AuthError:
         return _csrf_response(
             "Sign in",
             LOGIN_FORM.format(
-                error=f'<p class="error">{html.escape(str(exc))}</p>',
+                error='<p class="error">Email or password is incorrect.</p>',
                 email=html.escape(email, quote=True),
             ),
             status_code=400,
@@ -255,11 +255,14 @@ def signup(
             token = None
             if not settings.email_verification_required:
                 token = create_user_session(session, user.id)
-    except AuthError as exc:
+    except AuthError:
         return _csrf_response(
             "Create account",
             SIGNUP_FORM.format(
-                error=f'<p class="error">{html.escape(str(exc))}</p>',
+                error=(
+                    '<p class="error">Account creation failed. Check the supplied '
+                    "details or use a different email.</p>"
+                ),
                 name=safe_name,
                 email=safe_email,
             ),
@@ -306,8 +309,8 @@ async def stripe_webhook(request: Request):
     signature = request.headers.get("stripe-signature")
     try:
         result = handle_webhook(payload, signature)
-    except WebhookVerificationError as exc:
-        return JSONResponse({"detail": str(exc)}, status_code=400)
+    except WebhookVerificationError:
+        return JSONResponse({"detail": "Invalid Stripe webhook signature."}, status_code=400)
     except BillingError:
         return JSONResponse({"detail": "Webhook could not be processed."}, status_code=400)
     return JSONResponse(result)

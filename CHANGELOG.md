@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.0.8 CodeQL response hardening — 2026-08-23
+
+- Replaced authentication, Stripe signature, and launch-configuration exception text at public or operator-facing boundaries with fixed safe messages.
+- Added regressions that inject secret-like exception content and prove it cannot reach auth HTML, webhook JSON, or rendered launch-check output.
+
 ## v1.0.7 invariant and edge hardening — 2026-08-23
 
 - Removed free-form LLM prose from the output trust boundary. The optional model can now select and order only opaque IDs for complete supplied phrases; deterministic code renders the result and invalid/free-form responses fall back to templates.
