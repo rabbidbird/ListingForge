@@ -201,7 +201,9 @@ def construct_webhook_event(payload: bytes, signature: str | None) -> dict[str, 
         event = stripe.Webhook.construct_event(payload, signature, secret)
     except (ValueError, stripe.SignatureVerificationError) as exc:
         raise WebhookVerificationError("Invalid Stripe webhook signature.") from exc
-    if hasattr(event, "to_dict_recursive"):
+    if hasattr(event, "to_dict"):
+        return event.to_dict()
+    if hasattr(event, "to_dict_recursive"):  # Stripe SDK compatibility before v15.
         return event.to_dict_recursive()
     return dict(event)
 

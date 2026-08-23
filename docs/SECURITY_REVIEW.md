@@ -7,7 +7,7 @@ billing, generation controls, Docker/nginx runtime, and CI configuration.
 ## Executive summary
 
 No unresolved critical, high, or medium application-security findings remain in
-the reviewed v1 code. Four defense/proof gaps found during the final review were
+the reviewed v1 code. Five defense/proof gaps found during the final review were
 fixed and covered by automated checks. `pip-audit 2.10.1 -r requirements.txt`
 reported no known vulnerabilities in the pinned dependency set at review time.
 
@@ -77,6 +77,22 @@ using `SHIP_CHECKLIST.md`.
   only 40 requests per source per ten-minute window.
 - **False-positive notes:** the limiter is intentionally a single-instance soft
   control; add an edge/WAF or shared limiter before horizontally scaling.
+
+### SEC-05 — current Stripe SDK events failed after signature verification
+
+- **Severity:** High (resolved)
+- **Location:** `core/billing.py:196-208`, `tests/test_billing.py`
+- **Evidence:** Stripe Python 15.4 exposes `Event.to_dict()`; the previous
+  compatibility branch fell through to `dict(event)`, which raises for the
+  current SDK object. A real HMAC-signed SDK event now passes in unit and
+  container-edge tests.
+- **Impact before fix:** valid live webhooks would return 400 after payment, so a
+  customer could be charged while TrueDraft retained Free entitlements.
+- **Fix:** use the current public `to_dict()` conversion with a legacy fallback.
+- **Mitigation:** the container smoke sends the same raw signed bytes through
+  nginx twice and requires first-delivery processing plus retry idempotency.
+- **False-positive notes:** none; the initial container run reproduced the
+  failure against the pinned SDK before this fix.
 
 ## Existing controls verified
 

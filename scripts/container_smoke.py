@@ -84,6 +84,7 @@ def main() -> None:
         payload = json.dumps(
             {
                 "id": event_id,
+                "object": "event",
                 "type": "container.smoke",
                 "created": int(time.time()),
                 "data": {"object": {}},
@@ -96,7 +97,10 @@ def main() -> None:
             "stripe-signature": _stripe_signature(payload, timestamp),
         }
         webhook = client.post("/webhooks/stripe", content=payload, headers=headers)
-        _require(webhook.status_code == 200, "Signed webhook was rejected through nginx.")
+        _require(
+            webhook.status_code == 200,
+            f"Signed webhook was rejected through nginx: {webhook.status_code} {webhook.text[:200]}",
+        )
         _require(webhook.json().get("duplicate") is False, "New webhook was not processed.")
         duplicate = client.post("/webhooks/stripe", content=payload, headers=headers)
         _require(duplicate.status_code == 200, "Webhook retry was rejected.")

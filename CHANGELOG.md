@@ -11,6 +11,7 @@
 - PR #1 landed the paid PostgreSQL/auth/billing tree on `main`; the final ship checklist now contains only operator-owned launch work.
 - Final production proof now rejects outdated Alembic schemas at `/healthz`, validates production Host headers, bounds authentication inputs/rate-limit memory, and applies baseline CSP headers at nginx.
 - The container smoke now exercises signup/session/logout, signed webhook idempotency, and the Streamlit WebSocket proxy through nginx. Dependency audit found no known vulnerabilities in the pinned lock.
+- Fixed Stripe Python 15.4 event conversion (`Event.to_dict()`); a real SDK-signed webhook regression test now protects paid entitlement delivery in addition to mocked handler tests.
 - Enabled GitHub Dependabot alerts/security updates and private vulnerability reporting; added the repository security policy and review record.
 
 ## v1.0.5 public landing and pricing story — 2026-08-19

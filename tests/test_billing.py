@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -7,6 +11,7 @@ import pytest
 import core.billing as billing
 from core.billing import (
     BillingError,
+    construct_webhook_event,
     create_checkout_session,
     create_customer_portal_session,
     process_webhook_event,
@@ -23,6 +28,33 @@ def _configure_prices(monkeypatch) -> None:
     monkeypatch.setenv("STRIPE_PRICE_PRO", "price_pro")
     monkeypatch.setenv("STRIPE_PRICE_AGENCY", "price_agency")
     reset_settings_cache()
+
+
+def test_current_stripe_sdk_converts_a_real_signed_event(monkeypatch):
+    secret = "whsec_local-real-sdk-regression"
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", secret)
+    reset_settings_cache()
+    timestamp = int(time.time())
+    payload = json.dumps(
+        {
+            "id": "evt_real_sdk",
+            "object": "event",
+            "type": "container.smoke",
+            "created": timestamp,
+            "data": {"object": {"metadata": {"source": "regression"}}},
+        },
+        separators=(",", ":"),
+    ).encode()
+    digest = hmac.new(
+        secret.encode(),
+        f"{timestamp}.".encode() + payload,
+        hashlib.sha256,
+    ).hexdigest()
+
+    event = construct_webhook_event(payload, f"t={timestamp},v1={digest}")
+
+    assert event["id"] == "evt_real_sdk"
+    assert event["data"]["object"]["metadata"] == {"source": "regression"}
 
 
 def _checkout_event(
