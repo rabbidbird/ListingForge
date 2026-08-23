@@ -6,7 +6,8 @@ import re
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
-from core.auth import get_user_by_session_token
+from core.auth import AuthError, get_user_by_session_token
+from core.billing import WebhookVerificationError
 from core.config import reset_settings_cache
 from core.database import session_scope
 from core.models import User
@@ -98,6 +99,54 @@ def test_login_rejects_invalid_csrf():
         assert "expired" in response.text.lower()
 
 
+def test_login_does_not_expose_internal_auth_errors(monkeypatch):
+    web = _reload_web()
+
+    def fail_authentication(*_args, **_kwargs):
+        raise AuthError("sensitive-login-marker")
+
+    monkeypatch.setattr(web, "authenticate_user", fail_authentication)
+    with TestClient(web.app) as client:
+        page = client.get("/auth/login")
+        response = client.post(
+            "/auth/login",
+            data={
+                "csrf_token": _csrf(page.text),
+                "email": "person@example.com",
+                "password": "correct horse battery staple",
+            },
+        )
+
+    assert response.status_code == 400
+    assert "Email or password is incorrect." in response.text
+    assert "sensitive-login-marker" not in response.text
+
+
+def test_signup_does_not_expose_internal_auth_errors(monkeypatch):
+    web = _reload_web()
+
+    def fail_registration(*_args, **_kwargs):
+        raise AuthError("sensitive-signup-marker")
+
+    monkeypatch.setattr(web, "register_user", fail_registration)
+    with TestClient(web.app) as client:
+        page = client.get("/auth/signup")
+        response = client.post(
+            "/auth/signup",
+            data={
+                "csrf_token": _csrf(page.text),
+                "name": "Web User",
+                "email": "person@example.com",
+                "password": "correct horse battery staple",
+                "accepted_terms": "true",
+            },
+        )
+
+    assert response.status_code == 400
+    assert "Account creation failed." in response.text
+    assert "sensitive-signup-marker" not in response.text
+
+
 def test_webhook_without_signature_is_rejected():
     web = _reload_web()
     with TestClient(web.app) as client:
@@ -120,6 +169,25 @@ def test_webhook_invalid_signature_is_rejected(monkeypatch):
         )
         assert response.status_code == 400
         assert "signature" in response.json()["detail"].lower()
+
+
+def test_webhook_does_not_expose_verification_errors(monkeypatch):
+    web = _reload_web()
+
+    def fail_verification(*_args, **_kwargs):
+        raise WebhookVerificationError("sensitive-webhook-marker")
+
+    monkeypatch.setattr(web, "handle_webhook", fail_verification)
+    with TestClient(web.app) as client:
+        response = client.post(
+            "/webhooks/stripe",
+            content=b'{"id":"evt_x"}',
+            headers={"stripe-signature": "sensitive-signature"},
+        )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Invalid Stripe webhook signature."}
+    assert "sensitive-webhook-marker" not in response.text
 
 
 def test_health_rejects_database_behind_migration_head(monkeypatch):
