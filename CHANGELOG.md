@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.0.6 final review hardening — 2026-08-23
+
+- Negated supplied claims remain negated: phrases such as “not waterproof” can no longer be shortened into affirmative `waterproof` tags or LLM copy.
+- Production `launch_check` now blocks public traffic for test-mode, unrecognized, or placeholder Stripe credentials and for the intentionally disabled email-verification stub. Production also rejects base URLs that are not plain HTTPS origins.
+- Checkout uses an instance-scoped Stripe client and the current pinned API version. One expiring open Checkout is persisted per user, reused on repeated clicks, and released by terminal Checkout webhooks.
+- Built-in Streamlit dataframe export/copy controls are disabled so CSV downloads remain behind the confirmation checklist; the incompatible CORS override was removed.
+- Added the pending-Checkout Alembic migration and regression coverage for claim polarity, live-payment gates, duplicate Checkout prevention, and export configuration.
+
 ## v1.0.5 public landing and pricing story — 2026-08-19
 
 - Logged-out Home is a conversion landing page: hero, honest positioning, how-it-works, feature grid, trust, blocked-claim categories, and a plan teaser. Logged-in Home still shows plan metrics and draft/CSV actions.

@@ -3,8 +3,8 @@ gatherUsageStats = false
 
 [server]
 headless = true
-enableCORS = false
 enableXsrfProtection = true
 
 [client]
 toolbarMode = "viewer"
+disableDataExport = true

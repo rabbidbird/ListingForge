@@ -72,6 +72,43 @@ def test_supplied_compliance_terms_may_appear_when_sourced():
     assert "small-batch" in blob
 
 
+def test_negated_claim_is_not_extracted_into_affirmative_tags():
+    result = ListingGenerator(use_llm=False).generate_full_listing(
+        product_name="Not Waterproof Pouch",
+        primary_keyword="",
+        platform="etsy",
+    )
+
+    assert "not waterproof" in result["best_title"].lower()
+    assert "waterproof" not in result["tags"]
+    assert "waterproof pouch" not in result["tags"]
+    assert result["meta"]["claim_warnings"] == []
+
+
+def test_llm_cannot_flip_a_negated_claim_to_affirmative(monkeypatch):
+    monkeypatch.setattr("core.generator.is_llm_available", lambda: True)
+    monkeypatch.setattr(
+        "core.generator.generate_with_llm",
+        lambda **_: {
+            "titles": ["Waterproof Pouch"],
+            "best_title": "Waterproof Pouch",
+            "description": "DRAFT waterproof pouch",
+            "tags": ["waterproof"],
+            "meta": {"model": "mock"},
+        },
+    )
+
+    result = ListingGenerator(use_llm=True).generate_full_listing(
+        product_name="Not Waterproof Pouch",
+        platform="etsy",
+    )
+
+    assert result["meta"]["source"] == "template"
+    assert result["meta"]["llm_fact_lock_fallback"] is True
+    assert "waterproof" in " ".join(result["meta"]["llm_rejection_reasons"])
+    assert "waterproof" not in result["tags"]
+
+
 def test_tags_respect_etsy_limit():
     g = ListingGenerator(use_llm=False)
     r = g.generate_full_listing(

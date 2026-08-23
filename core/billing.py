@@ -24,7 +24,8 @@ from .plans import (
     subscription_must_use_portal,
 )
 
-STRIPE_API_VERSION = "2026-06-24.dahlia"
+STRIPE_API_VERSION = "2026-07-29.dahlia"
+CHECKOUT_SESSION_TTL_SECONDS = 60 * 60
 CHECKOUT_EVENTS = frozenset(
     {
         "checkout.session.completed",
@@ -56,12 +57,15 @@ class WebhookVerificationError(BillingError):
     pass
 
 
-def _configure_stripe() -> None:
+def _stripe_client() -> stripe.StripeClient:
     settings = get_settings()
     if not settings.stripe_api_key:
         raise BillingError("Stripe is not configured.")
-    stripe.api_key = settings.stripe_api_key
-    stripe.api_version = STRIPE_API_VERSION
+    return stripe.StripeClient(
+        settings.stripe_api_key,
+        stripe_version=STRIPE_API_VERSION,
+        max_network_retries=2,
+    )
 
 
 def stripe_enabled() -> bool:
@@ -80,54 +84,95 @@ def _price_for_plan(plan: str) -> str:
     return prices[plan]
 
 
+def _clear_pending_checkout(
+    subscription: Subscription, checkout_session_id: str | None = None
+) -> bool:
+    pending_id = subscription.pending_checkout_session_id
+    if not pending_id:
+        return False
+    if checkout_session_id is not None and pending_id != checkout_session_id:
+        return False
+    subscription.pending_checkout_session_id = None
+    subscription.pending_checkout_url = None
+    subscription.pending_checkout_plan = None
+    subscription.pending_checkout_expires_at = 0
+    return True
+
+
 def create_checkout_session(user_id: uuid.UUID, plan: str) -> str:
-    _configure_stripe()
+    client = _stripe_client()
     settings = get_settings()
     price_id = _price_for_plan(plan)
     with session_scope() as session:
         user = session.get(User, user_id)
-        subscription = session.scalar(select(Subscription).where(Subscription.user_id == user_id))
+        subscription = session.scalar(
+            select(Subscription).where(Subscription.user_id == user_id).with_for_update()
+        )
         if user is None or not user.is_active:
             raise BillingError("Active account required.")
+        if subscription is None:
+            subscription = Subscription(user_id=user_id, plan="free", status="free")
+            session.add(subscription)
+            session.flush()
         if subscription_must_use_portal(
-            subscription.status if subscription else None,
-            subscription.stripe_subscription_id if subscription else None,
+            subscription.status,
+            subscription.stripe_subscription_id,
         ):
             raise BillingError("Manage the existing subscription in the billing portal.")
-        customer_id = subscription.stripe_customer_id if subscription else None
-        email = user.email
+        now = int(time.time())
+        if (
+            subscription.pending_checkout_session_id
+            and subscription.pending_checkout_url
+            and subscription.pending_checkout_expires_at > now
+        ):
+            if subscription.pending_checkout_plan != plan:
+                raise BillingError(
+                    "A Checkout session is already open for another plan. "
+                    "Complete it or wait for it to expire before choosing a different plan."
+                )
+            return subscription.pending_checkout_url
+        _clear_pending_checkout(subscription)
 
-    suffix = "".join(secrets.choice(string.ascii_lowercase) for _ in range(8))
-    params: dict[str, Any] = {
-        "mode": "subscription",
-        "line_items": [{"price": price_id, "quantity": 1}],
-        "success_url": f"{settings.public_base_url}/About_Pricing?checkout=success",
-        "cancel_url": f"{settings.public_base_url}/About_Pricing?checkout=cancelled",
-        "client_reference_id": str(user_id),
-        "metadata": {"user_id": str(user_id), "plan": plan, "price_id": price_id},
-        "subscription_data": {
-            "metadata": {"user_id": str(user_id), "plan": plan, "price_id": price_id}
-        },
-        "integration_identifier": f"truedraft_{suffix}",
-    }
-    if customer_id:
-        params["customer"] = customer_id
-    else:
-        params["customer_email"] = email
-    try:
-        checkout = stripe.checkout.Session.create(
-            **params,
-            idempotency_key=f"truedraft-checkout-{user_id}-{plan}-{int(time.time() // 300)}",
-        )
-    except stripe.StripeError as exc:
-        raise BillingError("Stripe could not start checkout. Try again shortly.") from exc
-    if not checkout.url:
-        raise BillingError("Stripe did not return a checkout URL.")
-    return str(checkout.url)
+        customer_id = subscription.stripe_customer_id
+        email = user.email
+        expires_at = now + CHECKOUT_SESSION_TTL_SECONDS
+        suffix = "".join(secrets.choice(string.ascii_lowercase) for _ in range(8))
+        attempt_id = uuid.uuid4().hex
+        params: dict[str, Any] = {
+            "mode": "subscription",
+            "line_items": [{"price": price_id, "quantity": 1}],
+            "success_url": f"{settings.public_base_url}/About_Pricing?checkout=success",
+            "cancel_url": f"{settings.public_base_url}/About_Pricing?checkout=cancelled",
+            "client_reference_id": str(user_id),
+            "metadata": {"user_id": str(user_id), "plan": plan, "price_id": price_id},
+            "subscription_data": {
+                "metadata": {"user_id": str(user_id), "plan": plan, "price_id": price_id}
+            },
+            "integration_identifier": f"truedraft_{suffix}",
+            "expires_at": expires_at,
+        }
+        if customer_id:
+            params["customer"] = customer_id
+        else:
+            params["customer_email"] = email
+        try:
+            checkout = client.v1.checkout.sessions.create(
+                params,
+                {"idempotency_key": f"truedraft-checkout-{user_id}-{attempt_id}"},
+            )
+        except stripe.StripeError as exc:
+            raise BillingError("Stripe could not start checkout. Try again shortly.") from exc
+        if not checkout.id or not checkout.url:
+            raise BillingError("Stripe did not return a complete Checkout session.")
+        subscription.pending_checkout_session_id = str(checkout.id)
+        subscription.pending_checkout_url = str(checkout.url)
+        subscription.pending_checkout_plan = plan
+        subscription.pending_checkout_expires_at = expires_at
+        return str(checkout.url)
 
 
 def create_customer_portal_session(user_id: uuid.UUID) -> str:
-    _configure_stripe()
+    client = _stripe_client()
     settings = get_settings()
     with session_scope() as session:
         subscription = session.scalar(select(Subscription).where(Subscription.user_id == user_id))
@@ -135,12 +180,16 @@ def create_customer_portal_session(user_id: uuid.UUID) -> str:
     if not customer_id:
         raise BillingError("No Stripe customer is linked to this account yet.")
     try:
-        portal = stripe.billing_portal.Session.create(
-            customer=customer_id,
-            return_url=f"{settings.public_base_url}/About_Pricing?portal=return",
+        portal = client.v1.billing_portal.sessions.create(
+            {
+                "customer": customer_id,
+                "return_url": f"{settings.public_base_url}/About_Pricing?portal=return",
+            }
         )
     except stripe.StripeError as exc:
         raise BillingError("Stripe could not open the billing portal. Try again shortly.") from exc
+    if not portal.url:
+        raise BillingError("Stripe did not return a billing portal URL.")
     return str(portal.url)
 
 
@@ -263,7 +312,27 @@ def _apply_checkout(session, obj: dict[str, Any], event_created: int) -> dict[st
     )
     subscription.stripe_price_id = str(price_id)
     subscription.stripe_event_created_at = event_created
+    _clear_pending_checkout(subscription, str(obj.get("id")))
     return {"updated": True, "user_id": str(user_id), "plan": plan, "status": subscription.status}
+
+
+def _release_terminal_checkout(session, obj: dict[str, Any]) -> bool:
+    metadata = _metadata(obj)
+    user_id = _as_uuid(obj.get("client_reference_id") or metadata.get("user_id"))
+    subscription = None
+    if user_id is not None:
+        subscription = session.scalar(
+            select(Subscription).where(Subscription.user_id == user_id).with_for_update()
+        )
+    if subscription is None and obj.get("customer"):
+        subscription = session.scalar(
+            select(Subscription)
+            .where(Subscription.stripe_customer_id == obj.get("customer"))
+            .with_for_update()
+        )
+    if subscription is None:
+        return False
+    return _clear_pending_checkout(subscription, str(obj.get("id")))
 
 
 def _apply_subscription(
@@ -321,6 +390,8 @@ def process_webhook_event(event: dict[str, Any]) -> dict[str, Any]:
                 detail = _apply_subscription(session, obj, event_created, deleted=True)
             elif event_type in ACK_ONLY_EVENTS:
                 detail = {"updated": False, "reason": ACK_ONLY_EVENTS[event_type]}
+                if event_type.startswith("checkout.session."):
+                    detail["checkout_released"] = _release_terminal_checkout(session, obj)
             session.add(
                 WebhookEvent(
                     event_id=event_id,

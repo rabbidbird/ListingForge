@@ -10,7 +10,7 @@ See [docs/MERGE_STRATEGY.md](docs/MERGE_STRATEGY.md).
 
 ## Operator-owned boxes
 
-- [ ] **Stripe Dashboard:** create monthly recurring USD Starter ($12), Pro ($29), and Agency ($79) Prices (or update the displayed currency/copy in `core/plans.py` first). Copy the three `price_...` IDs — never Product IDs (`prod_...`). Create a least-privilege live restricted API key (`rk_live_...`). Enable the Customer Portal for plan changes, payment-method updates, and cancellation. **Limit customers to one subscription** so a delayed webhook cannot create a second paid sub. Subscribe these events at `https://YOUR_DOMAIN/webhooks/stripe`:
+- [ ] **Stripe Dashboard:** create monthly recurring USD Starter ($12), Pro ($29), and Agency ($79) Prices (or update the displayed currency/copy in `core/plans.py` first). Copy the three `price_...` IDs — never Product IDs (`prod_...`). Create a least-privilege live restricted API key (`rk_live_...`). Enable the Customer Portal for plan changes, payment-method updates, and cancellation. **Limit customers to one subscription** as defense in depth; the app also reuses one persisted open Checkout per user. Subscribe these events at `https://YOUR_DOMAIN/webhooks/stripe`:
   - required: `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`
   - recommended: `invoice.payment_failed`, `invoice.paid`, `checkout.session.async_payment_failed`, `checkout.session.expired`
   - copy the `whsec_...` signing secret
@@ -38,11 +38,11 @@ Use **test-mode Stripe first**. Do not point live Price IDs and a live key at a 
    ENV=production python -m scripts.launch_check
    ```
 
-   Expect `public-traffic gate: blocked` until legal placeholders are gone, and a **warning** that the Stripe key is test-mode. Follow the printed `next:` line. The command must not print secrets.
+   Expect `public-traffic gate: blocked` while the Stripe key is test-mode and until legal placeholders are gone. Test mode is an intentional launch **blocker**, not a warning-only pass. Follow the printed `next:` line. The command must not print secrets.
 8. **Product smoke (test mode):** create an account → generate one template draft → confirm it appears only in that account’s History.
 9. **Billing smoke (test mode):** Checkout Starter or Pro → return `?checkout=success` → refresh until the plan is paid → open the Customer Portal → cancel or change payment method → confirm return `?portal=return` and that inactive statuses fall back to Free limits.
 10. Replace legal placeholders after legal review. Switch Stripe variables to **live** (`rk_live_...`, live `price_...`, live `whsec_...`). Redeploy.
-11. Re-run `ENV=production python -m scripts.launch_check`. It must print `public-traffic gate: pass` and exit `0`. A remaining test-mode key is a warning, not a pass for live traffic.
+11. Re-run `ENV=production python -m scripts.launch_check`. It must print `public-traffic gate: pass` and exit `0`. A remaining test-mode key keeps the gate blocked.
 12. One live signup + one live test-clock or real $12 Checkout of your own, then accept paid public traffic.
 
 Do not accept paid public traffic until all four boxes are complete and launch_check passes against the live variable set.

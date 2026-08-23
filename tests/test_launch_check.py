@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import scripts.launch_check as launch_check
 from core.config import PROJECT_ROOT, reset_settings_cache
 from scripts.launch_check import (
     launch_report,
@@ -8,6 +9,21 @@ from scripts.launch_check import (
     remaining_legal_placeholders,
     render_report,
 )
+
+
+def _configure_complete_production(monkeypatch, *, stripe_key: str = "rk_live_51RealKeyShape123"):
+    monkeypatch.setenv("ENV", "production")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:password@db/truedraft")
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://app.truedraft.test")
+    monkeypatch.setenv("SESSION_SECRET", "unique-production-session-secret-value-32x")
+    monkeypatch.setenv("SESSION_COOKIE_SECURE", "true")
+    monkeypatch.setenv("STRIPE_API_KEY", stripe_key)
+    monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_51RealSigningSecret123")
+    monkeypatch.setenv("STRIPE_PRICE_STARTER", "price_1RealStarter")
+    monkeypatch.setenv("STRIPE_PRICE_PRO", "price_1RealPro")
+    monkeypatch.setenv("STRIPE_PRICE_AGENCY", "price_1RealAgency")
+    monkeypatch.setattr(launch_check, "remaining_legal_placeholders", lambda: [])
+    reset_settings_cache()
 
 
 def test_launch_check_reports_remaining_legal_placeholders():
@@ -78,6 +94,40 @@ def test_launch_check_flags_duplicate_and_placeholder_prices(monkeypatch):
     assert "not unique" in joined
     assert "placeholders" in joined
     assert report["ready_for_public_traffic"] is False
+
+
+def test_launch_check_blocks_public_traffic_with_test_mode_stripe(monkeypatch):
+    _configure_complete_production(monkeypatch, stripe_key="rk_test_51TestKeyShape123")
+
+    report = launch_report()
+
+    assert report["stripe_fully_configured"] is True
+    assert report["checks"]["stripe_live_key"] is False
+    assert report["ready_for_public_traffic"] is False
+    assert any("Stripe key is test-mode" in item for item in report["blockers"])
+    assert "switch all Stripe variables to live" in report["next_operator_action"]
+
+
+def test_launch_check_passes_automated_gates_with_live_non_placeholder_values(monkeypatch):
+    _configure_complete_production(monkeypatch)
+
+    report = launch_report()
+
+    assert report["ready_for_public_traffic"] is True
+    assert report["checks"]["stripe_live_key"] is True
+    assert report["checks"]["stripe_credentials_non_placeholder"] is True
+
+
+def test_launch_check_blocks_email_verification_stub_in_production(monkeypatch):
+    _configure_complete_production(monkeypatch)
+    monkeypatch.setenv("EMAIL_VERIFICATION_REQUIRED", "true")
+    reset_settings_cache()
+
+    report = launch_report()
+
+    assert report["ready_for_public_traffic"] is False
+    assert any("Email verification is enabled" in item for item in report["blockers"])
+    assert "EMAIL_VERIFICATION_REQUIRED=false" in report["next_operator_action"]
 
 
 def test_launch_check_rejects_stripe_product_ids_used_as_prices(monkeypatch):
@@ -155,6 +205,9 @@ def test_streamlit_config_hides_dev_surfaces():
     config = (PROJECT_ROOT / ".streamlit" / "config.toml").read_text(encoding="utf-8")
     assert "gatherUsageStats = false" in config
     assert 'toolbarMode = "viewer"' in config
+    assert "disableDataExport = true" in config
+    assert "enableCORS = false" not in config
     supervisord = (PROJECT_ROOT / "deploy" / "supervisord.conf").read_text(encoding="utf-8")
     assert "--client.toolbarMode=viewer" in supervisord
+    assert "--client.disableDataExport=true" in supervisord
     assert "--no-server-header" in supervisord

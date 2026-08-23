@@ -125,6 +125,15 @@ class Settings:
             errors.append("PUBLIC_BASE_URL must use https://")
         elif host in LOCAL_HOSTS:
             errors.append("PUBLIC_BASE_URL must be the public https origin, not localhost")
+        if (
+            parsed.path not in {"", "/"}
+            or parsed.params
+            or parsed.query
+            or parsed.fragment
+            or parsed.username
+            or parsed.password
+        ):
+            errors.append("PUBLIC_BASE_URL must be an origin without path, query, or credentials")
         if not self.cookie_secure:
             errors.append("SESSION_COOKIE_SECURE must be true")
         if errors:
@@ -154,7 +163,7 @@ def get_settings() -> Settings:
         llm_timeout_seconds=_as_int("LLM_TIMEOUT_SECONDS", 25),
         llm_max_tokens=_as_int("LLM_MAX_TOKENS", 1200, minimum=100),
         max_upload_bytes=_as_int("MAX_UPLOAD_BYTES", 2_000_000, minimum=1_024),
-        stripe_api_key=os.getenv("STRIPE_API_KEY", os.getenv("STRIPE_SECRET_KEY", "")),
+        stripe_api_key=os.getenv("STRIPE_API_KEY", ""),
         stripe_webhook_secret=os.getenv("STRIPE_WEBHOOK_SECRET", ""),
         stripe_price_starter=os.getenv("STRIPE_PRICE_STARTER", ""),
         stripe_price_pro=os.getenv("STRIPE_PRICE_PRO", ""),

@@ -82,12 +82,11 @@ authoritative if anything here disagrees.
 6. Deploy. Container startup runs `alembic upgrade head`; `/healthz` becomes healthy only after the migrated database is reachable.
 7. Add the Railway custom domain, point DNS as Railway instructs, then set `PUBLIC_BASE_URL=https://YOUR_DOMAIN` and redeploy.
 8. In Stripe **test** Workbench, add `https://YOUR_DOMAIN/webhooks/stripe` and subscribe at least `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `customer.subscription.created`, `customer.subscription.updated`, and `customer.subscription.deleted`. Copy its `whsec_...` value to `STRIPE_WEBHOOK_SECRET` and redeploy. Recommended extras: `invoice.payment_failed`, `invoice.paid`, `checkout.session.async_payment_failed`, `checkout.session.expired`.
-9. Enable the Stripe Customer Portal (test mode) for subscription changes, cancellation, and payment-method management. Limit customers to one subscription so a second Checkout cannot be completed accidentally.
+9. Enable the Stripe Customer Portal (test mode) for subscription changes, cancellation, and payment-method management. Limit customers to one subscription as defense in depth; TrueDraft also persists and reuses one open Checkout session per user.
 10. Replace `{{OPERATOR_LEGAL_NAME}}`, `{{CONTACT_EMAIL}}`, and `{{JURISDICTION}}` in `pages/6_Legal.py` after legal review.
-11. Run `ENV=production python -m scripts.launch_check` against the production variable set. Follow the printed `next:` line and the printed `verify:` sequence: signup → template draft → history, then test-mode Checkout → webhook → portal. Expect a test-mode key **warning** and a blocked public-traffic gate until legal placeholders are gone. Then switch Stripe variables to **live** (`rk_live_...`, live `price_...`, live `whsec_...`), redeploy, and re-run launch_check until it prints `public-traffic gate: pass` and exits 0.
+11. Run `ENV=production python -m scripts.launch_check` against the production variable set. Follow the printed `next:` line and the printed `verify:` sequence: signup → template draft → history, then test-mode Checkout → webhook → portal. A test-mode key is an expected **blocker** during verification and can never pass the public-traffic gate. Then switch Stripe variables to **live** (`rk_live_...`, live `price_...`, live `whsec_...`), redeploy, and re-run launch_check until it prints `public-traffic gate: pass` and exits 0.
 12. Require the GitHub Actions `test` and `container-smoke` jobs on the default branch, then accept paid public traffic.
 
-Do not enable Stripe automatic tax unless the operator has the registrations required for Stripe to calculate and collect tax. Use separate Stripe keys for test and live environments.
 Do not enable Stripe automatic tax unless the operator has the registrations required for Stripe to calculate and collect tax. Use separate Stripe keys for test and live environments.
 
 ## Configuration
@@ -104,6 +103,7 @@ Do not set `LISTINGFORGE_SKIP_AUTH`, `TRUEDRAFT_SKIP_AUTH`, `LISTINGFORGE_REQUIR
 ruff check .
 ruff format --check .
 pytest
+python -m core.migrate
 python -m scripts.smoke
 python -m scripts.launch_check
 ```
@@ -117,6 +117,7 @@ CI runs lint, migrations, the fact-lock/auth/usage/billing/CSV suite, an import 
 - Stripe signatures are verified before parsing event data.
 - Processed event IDs are stored transactionally, so retries are idempotent.
 - Checkout metadata and, when present, Checkout line-item Prices map a signed event to an immutable TrueDraft user and a configured Price. The `plan` metadata field is never trusted. Line items do not need to be expanded in the Stripe dashboard; `metadata.price_id` is a signed fallback.
+- One unexpired Checkout session is stored per user and plan. Repeated clicks reuse its URL; choosing another plan is blocked until that session completes or expires. Paid, failed, and expired Checkout events clear the pending session.
 - `checkout.session.async_payment_succeeded` is handled the same as a paid completed Checkout so delayed payment methods can still grant entitlements.
 - Subscription changes derive plan from the current Stripe Price. Unknown Prices fail closed to Free even when Stripe status is `active`.
 - Deleted, unpaid, incomplete, paused, past_due, or otherwise inactive subscriptions fail closed to Free limits. Past-due accounts must use the Customer Portal; a second Checkout session is blocked.

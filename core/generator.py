@@ -132,6 +132,45 @@ PROHIBITED_UNLESS_SUPPLIED = {
     "5-star",
 }
 
+# A prohibited term in a negative statement is not an affirmative product fact.
+# Keep the complete negative phrase, but never extract the term into a positive
+# title/tag/LLM claim (for example, "not waterproof" must not yield
+# "waterproof"). Punctuation starts a new clause so a negation does not leak
+# into an unrelated supplied fact.
+NEGATION_WORDS = frozenset(
+    {
+        "ain't",
+        "aint",
+        "aren't",
+        "arent",
+        "can't",
+        "cannot",
+        "cant",
+        "didn't",
+        "didnt",
+        "doesn't",
+        "doesnt",
+        "don't",
+        "dont",
+        "isn't",
+        "isnt",
+        "neither",
+        "never",
+        "no",
+        "non",
+        "nor",
+        "not",
+        "wasn't",
+        "wasnt",
+        "weren't",
+        "werent",
+        "without",
+        "won't",
+        "wont",
+    }
+)
+NEGATION_EXCEPTIONS = frozenset({"just", "merely", "only"})
+
 # Neutral connective vocabulary that an LLM may add without asserting a product fact.
 LLM_SAFE_GLUE_WORDS = {
     "a",
@@ -232,14 +271,34 @@ class ListingGenerator:
         return "\n".join(parts)
 
     @staticmethod
-    def _term_present(text: str, term: str) -> bool:
-        return bool(re.search(rf"(?<!\w){re.escape(term)}(?!\w)", text, flags=re.IGNORECASE))
+    def _term_present_affirmatively(text: str, term: str) -> bool:
+        pattern = re.compile(rf"(?<!\w){re.escape(term)}(?!\w)", flags=re.IGNORECASE)
+        for match in pattern.finditer(text):
+            prefix = text[max(0, match.start() - 120) : match.start()].lower()
+            # Negation applies only inside the current clause.
+            clause_prefix = re.split(r"[\n.!?;,:]", prefix)[-1]
+            words = re.findall(r"[a-z]+(?:'[a-z]+)?", clause_prefix)[-6:]
+            negated = False
+            for index, word in enumerate(words):
+                if word not in NEGATION_WORDS:
+                    continue
+                following = words[index + 1 :]
+                if following and following[0] in NEGATION_EXCEPTIONS:
+                    continue
+                negated = True
+            suffix = text[match.end() : match.end() + 24].lower()
+            if re.match(r"^\s*(?:(?:[:=\-–—])\s*|\(\s*)?(?:false|no|none|not|0)\b", suffix):
+                negated = True
+            if not negated:
+                return True
+        return False
 
     def _contains_unsourced_claims(self, text: str, source_blob: str) -> list[str]:
         return sorted(
             term
             for term in PROHIBITED_UNLESS_SUPPLIED
-            if self._term_present(text, term) and not self._term_present(source_blob, term)
+            if self._term_present_affirmatively(text, term)
+            and not self._term_present_affirmatively(source_blob, term)
         )
 
     @staticmethod
@@ -383,6 +442,14 @@ class ListingGenerator:
             candidates.append(f"{keyword} for {audience}")
         candidates.extend(extra_keywords or [])
 
+        source_blob = self._source_blob(
+            product_name=product_name,
+            primary_keyword=primary_keyword,
+            material=material,
+            audience=audience,
+            extra_keywords=extra_keywords or [],
+        )
+
         # Source-grounded subphrases help fill available slots without inventing attributes.
         for phrase in [product, keyword, *(extra_keywords or [])]:
             words = phrase.split()
@@ -392,6 +459,8 @@ class ListingGenerator:
         final: list[str] = []
         for candidate in candidates:
             tag = self._fit_tag(candidate, platform)
+            if self._contains_unsourced_claims(tag, source_blob):
+                continue
             if len(tag) >= 2 and tag not in final:
                 final.append(tag)
             if len(final) >= max_tags:

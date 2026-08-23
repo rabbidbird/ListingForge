@@ -73,6 +73,20 @@ def test_production_rejects_loopback_public_urls(monkeypatch, host):
         get_settings()
 
 
+@pytest.mark.parametrize(
+    "public_url",
+    [
+        "https://app.truedraft.example/subpath",
+        "https://app.truedraft.example?mode=prod",
+        "https://user:password@app.truedraft.example",
+    ],
+)
+def test_production_requires_public_base_url_to_be_an_origin(monkeypatch, public_url):
+    _production_env(monkeypatch, PUBLIC_BASE_URL=public_url)
+    with pytest.raises(RuntimeError, match="origin without path"):
+        get_settings()
+
+
 def test_production_rejects_default_and_documented_session_secrets(monkeypatch):
     assert is_insecure_session_secret(DEFAULT_DEV_SESSION_SECRET)
     for secret in INSECURE_SESSION_SECRETS:

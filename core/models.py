@@ -137,6 +137,10 @@ class Subscription(Base):
     stripe_customer_id: Mapped[str | None] = mapped_column(String(255), unique=True, index=True)
     stripe_subscription_id: Mapped[str | None] = mapped_column(String(255), unique=True, index=True)
     stripe_price_id: Mapped[str | None] = mapped_column(String(255))
+    pending_checkout_session_id: Mapped[str | None] = mapped_column(String(255), unique=True)
+    pending_checkout_url: Mapped[str | None] = mapped_column(Text)
+    pending_checkout_plan: Mapped[str | None] = mapped_column(String(24))
+    pending_checkout_expires_at: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     stripe_event_created_at: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(

@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
-from core.billing import BillingError, create_checkout_session, process_webhook_event
+import core.billing as billing
+from core.billing import (
+    BillingError,
+    create_checkout_session,
+    create_customer_portal_session,
+    process_webhook_event,
+)
 from core.config import reset_settings_cache
 from core.database import session_scope
 from core.models import Subscription
@@ -28,8 +36,10 @@ def _checkout_event(
     plan_metadata: str = "agency",
     event_type: str = "checkout.session.completed",
     include_user: bool = True,
+    session_id: str = "cs_123",
 ):
     obj = {
+        "id": session_id,
         "client_reference_id": str(user_id) if include_user else None,
         "metadata": {
             "user_id": str(user_id) if include_user else "not-a-uuid",
@@ -305,6 +315,115 @@ def test_webhook_does_not_change_another_users_plan(user_factory, monkeypatch):
     process_webhook_event(_checkout_event(owner.id, price_id="price_pro"))
     assert get_usage(stranger.id)["plan"] == "free"
     assert get_usage(owner.id)["plan"] == "pro"
+
+
+def _fake_stripe_client():
+    checkout_calls: list[tuple[dict, dict]] = []
+
+    def create_checkout(params, options):
+        checkout_calls.append((params, options))
+        number = len(checkout_calls)
+        return SimpleNamespace(id=f"cs_fake_{number}", url=f"https://checkout.stripe.test/{number}")
+
+    client = SimpleNamespace(
+        v1=SimpleNamespace(
+            checkout=SimpleNamespace(
+                sessions=SimpleNamespace(create=create_checkout),
+            ),
+        )
+    )
+    return client, checkout_calls
+
+
+def test_open_checkout_is_reused_instead_of_creating_a_second_subscription(
+    user_factory, monkeypatch
+):
+    _configure_prices(monkeypatch)
+    client, calls = _fake_stripe_client()
+    monkeypatch.setattr(billing, "_stripe_client", lambda: client)
+    user = user_factory()
+
+    first = create_checkout_session(user.id, "pro")
+    second = create_checkout_session(user.id, "pro")
+
+    assert first == second == "https://checkout.stripe.test/1"
+    assert len(calls) == 1
+    params, options = calls[0]
+    assert params["mode"] == "subscription"
+    assert params["expires_at"] > 0
+    assert "payment_method_types" not in params
+    assert options["idempotency_key"].startswith(f"truedraft-checkout-{user.id}-")
+    with session_scope() as session:
+        subscription = session.query(Subscription).filter_by(user_id=user.id).one()
+        assert subscription.pending_checkout_session_id == "cs_fake_1"
+        assert subscription.pending_checkout_plan == "pro"
+
+
+def test_open_checkout_blocks_switching_to_another_plan(user_factory, monkeypatch):
+    _configure_prices(monkeypatch)
+    client, calls = _fake_stripe_client()
+    monkeypatch.setattr(billing, "_stripe_client", lambda: client)
+    user = user_factory()
+
+    create_checkout_session(user.id, "starter")
+    with pytest.raises(BillingError, match="already open for another plan"):
+        create_checkout_session(user.id, "pro")
+    assert len(calls) == 1
+
+
+def test_expired_checkout_webhook_releases_pending_session(user_factory, monkeypatch):
+    _configure_prices(monkeypatch)
+    client, calls = _fake_stripe_client()
+    monkeypatch.setattr(billing, "_stripe_client", lambda: client)
+    user = user_factory()
+
+    create_checkout_session(user.id, "pro")
+    result = process_webhook_event(
+        _checkout_event(
+            user.id,
+            event_id="evt_expired",
+            event_type="checkout.session.expired",
+            payment_status="unpaid",
+            session_id="cs_fake_1",
+        )
+    )
+    second = create_checkout_session(user.id, "pro")
+
+    assert result["checkout_released"] is True
+    assert second == "https://checkout.stripe.test/2"
+    assert len(calls) == 2
+
+
+def test_customer_portal_uses_linked_customer_and_instance_client(user_factory, monkeypatch):
+    _configure_prices(monkeypatch)
+    portal_calls: list[dict] = []
+
+    def create_portal(params):
+        portal_calls.append(params)
+        return SimpleNamespace(url="https://billing.stripe.test/session")
+
+    client = SimpleNamespace(
+        v1=SimpleNamespace(
+            billing_portal=SimpleNamespace(
+                sessions=SimpleNamespace(create=create_portal),
+            )
+        )
+    )
+    monkeypatch.setattr(billing, "_stripe_client", lambda: client)
+    user = user_factory()
+    with session_scope() as session:
+        subscription = session.query(Subscription).filter_by(user_id=user.id).one()
+        subscription.stripe_customer_id = "cus_linked"
+
+    url = create_customer_portal_session(user.id)
+
+    assert url == "https://billing.stripe.test/session"
+    assert portal_calls == [
+        {
+            "customer": "cus_linked",
+            "return_url": "http://localhost:8080/About_Pricing?portal=return",
+        }
+    ]
 
 
 def test_unhandled_event_is_recorded_without_entitlement_change(user_factory, monkeypatch):

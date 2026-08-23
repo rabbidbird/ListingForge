@@ -57,10 +57,30 @@ NEXT_ACTION_HINTS = (
         "not localhost",
         "Set PUBLIC_BASE_URL to the public https:// origin, not localhost.",
     ),
+    (
+        "origin without path",
+        "Set PUBLIC_BASE_URL to only the https:// scheme and host, without a path, query, or credentials.",
+    ),
     ("SESSION_COOKIE_SECURE", "Set SESSION_COOKIE_SECURE=true."),
     (
         "Stripe is incomplete",
         "Create Stripe Prices and set STRIPE_API_KEY, STRIPE_WEBHOOK_SECRET, and all three STRIPE_PRICE_* values.",
+    ),
+    (
+        "Stripe key is test-mode",
+        "Finish the test Checkout cycle, switch all Stripe variables to live mode, and re-run launch_check.",
+    ),
+    (
+        "STRIPE_API_KEY must be a live",
+        "Set STRIPE_API_KEY to a least-privilege live restricted key (rk_live_...).",
+    ),
+    (
+        "STRIPE_WEBHOOK_SECRET must start",
+        "Set STRIPE_WEBHOOK_SECRET to the live endpoint signing secret (whsec_...).",
+    ),
+    (
+        "appears to be a documented placeholder",
+        "Replace the placeholder Stripe credential with the actual environment-specific secret.",
     ),
     ("not unique", "Give Starter, Pro, and Agency each their own Stripe Price ID."),
     (
@@ -78,6 +98,10 @@ NEXT_ACTION_HINTS = (
     (
         "Legacy main-branch",
         "Unset LISTINGFORGE_*, TRUEDRAFT_SKIP_AUTH, STRIPE_SUCCESS_URL, and STRIPE_CANCEL_URL.",
+    ),
+    (
+        "Email verification is enabled",
+        "Set EMAIL_VERIFICATION_REQUIRED=false until a delivery and verification adapter is implemented.",
     ),
 )
 VERIFY_SEQUENCE = (
@@ -118,6 +142,11 @@ def _stripe_key_kind(key: str) -> str:
 
 def _present(value: str) -> bool:
     return bool(value and value.strip())
+
+
+def _looks_like_placeholder(value: str) -> bool:
+    lowered = value.strip().lower()
+    return any(marker in lowered for marker in ("...", "example", "replace", "changeme", "xxx"))
 
 
 def next_operator_action(report: dict[str, Any]) -> str:
@@ -248,16 +277,38 @@ def launch_report() -> dict[str, Any]:
         else:
             warnings.append(message)
 
-    if stripe_kind in {"test_restricted", "test_secret"} and settings.is_production:
-        warnings.append("Stripe key is test-mode; live paid traffic needs a live key")
+    if stripe_kind in {"test_restricted", "test_secret"}:
+        message = "Stripe key is test-mode; live paid traffic needs a live key"
+        if settings.is_production:
+            blockers.append(message)
+        else:
+            warnings.append(message)
     if stripe_kind == "live_secret":
         warnings.append("Prefer a restricted live Stripe key (rk_live...) over sk_live")
     if stripe_kind == "unrecognized" and _present(settings.stripe_api_key):
-        warnings.append("STRIPE_API_KEY does not use a recognized sk_/rk_ prefix")
+        message = "STRIPE_API_KEY must be a live sk_live_... or rk_live_... key"
+        if settings.is_production:
+            blockers.append(message)
+        else:
+            warnings.append(message)
     if _present(settings.stripe_webhook_secret) and not settings.stripe_webhook_secret.startswith(
         "whsec_"
     ):
-        warnings.append("STRIPE_WEBHOOK_SECRET should start with whsec_")
+        message = "STRIPE_WEBHOOK_SECRET must start with whsec_"
+        if settings.is_production:
+            blockers.append(message)
+        else:
+            warnings.append(message)
+    for credential_name, credential_value in (
+        ("STRIPE_API_KEY", settings.stripe_api_key),
+        ("STRIPE_WEBHOOK_SECRET", settings.stripe_webhook_secret),
+    ):
+        if _present(credential_value) and _looks_like_placeholder(credential_value):
+            message = f"{credential_name} appears to be a documented placeholder"
+            if settings.is_production:
+                blockers.append(message)
+            else:
+                warnings.append(message)
     if settings.llm_enabled:
         has_llm_key = any(
             os.getenv(name) for name in ("OPENAI_API_KEY", "XAI_API_KEY", "GROK_API_KEY")
@@ -269,7 +320,11 @@ def launch_report() -> dict[str, Any]:
                 "LLM mode is enabled; confirm provider DPA, model, timeout, and token caps"
             )
     if settings.email_verification_required:
-        warnings.append("EMAIL_VERIFICATION_REQUIRED is true, but v1 has no email delivery adapter")
+        message = "Email verification is enabled, but v1 has no delivery or verification adapter"
+        if settings.is_production:
+            blockers.append(message)
+        else:
+            warnings.append(message)
 
     checks = {
         "environment": settings.environment,
@@ -278,7 +333,12 @@ def launch_report() -> dict[str, Any]:
         "cookie_secure": settings.cookie_secure,
         "session_secret_hardened": not is_insecure_session_secret(settings.session_secret),
         "stripe_key_kind": stripe_kind,
+        "stripe_live_key": stripe_kind in {"live_restricted", "live_secret"},
         "stripe_webhook_secret_set": _present(settings.stripe_webhook_secret),
+        "stripe_credentials_non_placeholder": all(
+            _present(value) and not _looks_like_placeholder(value)
+            for value in (settings.stripe_api_key, settings.stripe_webhook_secret)
+        ),
         "stripe_prices_set": {
             name: _present(value)
             and value not in PLACEHOLDER_PRICE_IDS

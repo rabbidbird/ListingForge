@@ -19,7 +19,8 @@ def test_alembic_upgrade_creates_all_model_tables(tmp_path, monkeypatch):
     config = Config(str(PROJECT_ROOT / "alembic.ini"))
     command.upgrade(config, "head")
 
-    tables = set(inspect(get_engine()).get_table_names())
+    inspector = inspect(get_engine())
+    tables = set(inspector.get_table_names())
     assert set(Base.metadata.tables) <= tables
     assert "alembic_version" in tables
     assert {
@@ -30,3 +31,10 @@ def test_alembic_upgrade_creates_all_model_tables(tmp_path, monkeypatch):
         "subscriptions",
         "webhook_events",
     }.issubset(tables)
+    subscription_columns = {column["name"] for column in inspector.get_columns("subscriptions")}
+    assert {
+        "pending_checkout_session_id",
+        "pending_checkout_url",
+        "pending_checkout_plan",
+        "pending_checkout_expires_at",
+    }.issubset(subscription_columns)

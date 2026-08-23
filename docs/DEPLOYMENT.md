@@ -14,7 +14,7 @@ The four remaining launch items are operator-owned. Do not merge `main`'s local 
 - Portal return: `/About_Pricing?portal=return`
 - Startup migration: `python -m core.migrate` → `alembic upgrade head`
 - Processes behind nginx: FastAPI on `127.0.0.1:8000`, Streamlit on `127.0.0.1:8501`
-- Streamlit: headless, viewer toolbar, usage stats off
+- Streamlit: headless, viewer toolbar, usage stats off, built-in dataframe export/copy controls off so confirmed download buttons remain the export path
 - Runtime user: non-root UID/GID `10001`
 
 A bare `docker run` of this image without production variables **must fail to start**. That is intentional. Use `docker compose up --build` for the local path.
