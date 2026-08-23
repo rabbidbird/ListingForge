@@ -1,123 +1,177 @@
-"""
-About, pricing, and launch readiness for ListingForge
-"""
+"""Public plan comparison and authenticated Stripe billing actions."""
+
+from __future__ import annotations
 
 import streamlit as st
 
-from core.auth import user_id
+from core.auth import streamlit_current_user
+from core.billing import (
+    BillingError,
+    create_checkout_session,
+    create_customer_portal_session,
+    get_upgrade_options,
+    stripe_enabled,
+)
+from core.copy import PLAN_BLURBS, PROMISE, plan_limit_lines
+from core.plans import PAID_PLANS, PLANS
+from core.ui import (
+    configure_page,
+    draft_banner,
+    heuristic_notice,
+    render_public_ctas,
+    render_public_footer,
+    render_quota_notice,
+    render_sidebar,
+)
 from core.usage import get_usage
-from core.billing import create_checkout_session, get_upgrade_options, stripe_enabled
-from core.usage import PLANS
-import os
 
+configure_page("Plans & Pricing", "💳")
+user = streamlit_current_user()
+render_sidebar(user)
 
-st.set_page_config(page_title="About & Pricing | ListingForge", page_icon="💎", layout="wide")
-
-st.title("About ListingForge")
-
-viewer_user_id = user_id()
-usage = get_usage(viewer_user_id)
-st.markdown(
-    f"### Account status\n"
-    f"Current plan: **{usage['plan_label']}**  \n"
-    f"Today's usage: **{usage['daily']}** / {usage['daily_limit'] or 'unlimited'}  \n"
-    f"Monthly usage: **{usage['monthly']}** / {usage['monthly_limit'] or 'unlimited'}  \n"
-    f"Remaining this period: "
-    f"{usage['remaining_total'] if usage['remaining_total'] is not None else 'unlimited'}"
+st.title("Plans and pricing")
+st.write(PROMISE)
+st.write(
+    "All plans use the same fact-locked generator. Paid plans raise documented quotas; "
+    "none are marketed as unlimited. TrueDraft does not publish listings or promise ranking."
 )
+draft_banner()
+
+checkout_state = st.query_params.get("checkout")
+portal_state = st.query_params.get("portal")
+if checkout_state == "success":
+    st.success(
+        "Checkout returned successfully. Stripe webhooks apply the paid entitlement in a "
+        "few seconds. Refresh this page if the plan below has not updated yet."
+    )
+    st.info("If payment is still processing, Free limits stay in force until Stripe confirms it.")
+elif checkout_state == "cancelled":
+    st.info("Checkout was cancelled; your current plan is unchanged.")
+if portal_state == "return":
+    st.info(
+        "Returned from the Stripe Customer Portal. Plan changes apply after the signed "
+        "webhook is processed; refresh if the status below looks stale."
+    )
+
+st.markdown("### Compare plans")
+columns = st.columns(4)
+for column, plan_name in zip(columns, ["free", "starter", "pro", "agency"], strict=True):
+    policy = PLANS[plan_name]
+    with column:
+        st.subheader(policy.name)
+        st.markdown(f"**{policy.display_price}**")
+        st.caption(PLAN_BLURBS[plan_name])
+        for line in plan_limit_lines(plan_name):
+            st.write(line)
 
 st.markdown(
     """
-## What this is
-
-ListingForge is a **self-hosted draft generator** for product titles, descriptions, and tags.
-It is designed to help you produce high-quality listing drafts that you can quickly review and edit before publishing.
-
-### Current limits
-
-- Free: {free_daily} generations/day, {free_monthly} generations/month (local SQLite history)
-- Starter: {starter_daily} generations/day, {starter_monthly} generations/month
-- Pro / Agency: unlimited generation
-
-### Launch readiness checklist
-
-1. [x] Local usage limits + plan metadata
-2. [x] SEO scoring + template + optional LLM backend
-3. [x] Global auth helpers and per-user usage/history isolation wired through `core.auth`
-4. [ ] Managed database + backups (PostgreSQL or equivalent)
-5. [ ] Production Stripe webhooks + reconciliation
-6. [ ] Marketplace-specific policy compliance checks
-
-This is functional for controlled launch and pilot traffic.
-""".format(
-        free_daily=PLANS["free"]["daily"],
-        free_monthly=PLANS["free"]["monthly"],
-        starter_daily=PLANS["starter"]["daily"],
-        starter_monthly=PLANS["starter"]["monthly"],
-    )
+| | Free | Starter | Pro | Agency |
+|---|---:|---:|---:|---:|
+| Price | $0 | $12/month | $29/month | $79/month |
+| Drafts / UTC day | 8 | 50 | 250 | 1,000 |
+| Drafts / UTC month | 40 | 1,000 | 5,000 | 25,000 |
+| Rows / bulk job | 5 | 25 | 100 | 250 |
+| LLM attempts / UTC day | 4 | 25 | 100 | 500 |
+| Fact-lock + review export | Yes | Yes | Yes | Yes |
+"""
+)
+st.caption(
+    "Limits are enforced per user in database transactions. LLM attempts can fall back to "
+    "template output when source-lock checks fail. Periods are UTC."
 )
 
-st.markdown("### Plans")
-if stripe_enabled():
-    st.success("Stripe is configured. Add a production checkout endpoint before launch.")
+if user is None:
+    st.info("Create a Free account to generate drafts. Upgrade later from this page.")
+    render_public_ctas(include_plans=False)
 else:
-    st.info("Stripe is not configured. Set STRIPE_* env vars when enabling paid plans.")
-
-for option in get_upgrade_options():
-    st.markdown(
-        f"**{option['label']}** (`{option['plan']}`) — "
-        f"{option['price']} — {option['desc']} "
-        f"(price_id: `{option['price_id'] or 'not set'}`)"
+    usage = get_usage(user.id)
+    st.subheader(f"Current plan: {str(usage['plan']).title()}")
+    st.caption(
+        f"Billing status: {str(usage['status'])}. "
+        f"{usage['daily_remaining']} drafts left today and "
+        f"{usage['monthly_remaining']} this month (UTC)."
     )
+    render_quota_notice(usage)
+    if not stripe_enabled():
+        st.warning(
+            "Live billing is not configured. The operator must set the Stripe restricted API "
+            "key, signing secret, and all three Price IDs."
+        )
 
-    if stripe_enabled() and option["price_id"]:
-        checkout_success = os.getenv("STRIPE_SUCCESS_URL", "").strip()
-        checkout_cancel = os.getenv("STRIPE_CANCEL_URL", "").strip()
-        if not checkout_success or not checkout_cancel:
-            st.warning("Set STRIPE_SUCCESS_URL and STRIPE_CANCEL_URL to enable checkout buttons.")
-        else:
-            if st.button(f"Start checkout for {option['label']}", key=f"start_checkout_{option['plan']}"):
-                user = viewer_user_id
-                checkout_url = create_checkout_session(
-                    user_id=user,
-                    price_id=option["price_id"],
-                    success_url=checkout_success,
-                    cancel_url=checkout_cancel,
-                )
-                if checkout_url:
-                    st.link_button(f"Continue to {option['label']} checkout", checkout_url, type="primary")
-                else:
-                    st.error("Checkout session could not be created. Confirm Stripe is configured.")
-    elif option["price_id"]:
-        st.info("Set Stripe credentials to enable payment checkout for this plan.")
+    if usage.get("manage_in_portal"):
+        st.info(
+            "This account already has a Stripe subscription. Use the billing portal to "
+            "change plan, update the payment method, or cancel. Starting a second Checkout "
+            "session is blocked so you cannot be double-charged."
+        )
     else:
-        st.info("No price ID configured for this plan yet.")
+        options = get_upgrade_options()
+        action_columns = st.columns(3)
+        for column, option in zip(action_columns, options, strict=True):
+            with column:
+                if st.button(
+                    f"Choose {option['name']}",
+                    key=f"checkout_{option['plan']}",
+                    disabled=not stripe_enabled(),
+                    use_container_width=True,
+                ):
+                    try:
+                        url = create_checkout_session(user.id, option["plan"])
+                        st.session_state["stripe_checkout"] = {
+                            "user_id": str(user.id),
+                            "plan": option["plan"],
+                            "url": url,
+                        }
+                    except BillingError as exc:
+                        st.error(str(exc))
 
+        pending = st.session_state.get("stripe_checkout")
+        if pending and pending.get("user_id") == str(user.id):
+            st.link_button(
+                f"Continue to Stripe Checkout for {str(pending['plan']).title()}",
+                pending["url"],
+                type="primary",
+            )
+
+    if usage.get("has_stripe_customer") or usage.get("manage_in_portal"):
+        if st.button("Open Stripe billing portal", disabled=not stripe_enabled()):
+            try:
+                portal_url = create_customer_portal_session(user.id)
+                st.session_state["stripe_portal"] = {
+                    "user_id": str(user.id),
+                    "url": portal_url,
+                }
+            except BillingError as exc:
+                st.error(str(exc))
+        portal = st.session_state.get("stripe_portal")
+        if portal and portal.get("user_id") == str(user.id):
+            st.link_button("Continue to Stripe billing portal", portal["url"])
+    elif str(usage["plan"]) in PAID_PLANS:
+        st.caption("The billing portal appears after Stripe links a customer to this account.")
+
+st.divider()
+st.subheader("How billing state is applied")
 st.markdown(
-    """
-### Billing behavior
-
-Webhook events are expected to carry a `plan` in metadata or a known Stripe `price_id`.
-When a payment event is received, the user plan is updated in the local `usage_users` table.
-"""
+    "- Checkout uses Stripe-hosted subscription Checkout with dynamic payment methods.\n"
+    "- Signed, idempotent webhooks grant, change, or remove plan entitlements.\n"
+    "- Active and trialing subscriptions receive paid limits; other statuses fail closed to Free.\n"
+    "- Past-due or unpaid invoices keep Free limits until the invoice is paid in the portal.\n"
+    "- The Stripe-hosted Customer Portal handles payment methods, plan changes, and cancellation.\n"
+    "- Returning from Checkout or the portal does not itself change limits; the webhook does."
 )
-
+st.subheader("Billing questions")
 st.markdown(
-    """
-### Run locally
-
-```bash
-pip install -r requirements.txt
-streamlit run app.py
-```
-
-Optional single-tenant auth for early demos:
-
-```bash
-export LISTINGFORGE_SKIP_AUTH=true
-export LISTINGFORGE_PASSWORD=your-secret
-```
-
-`LISTINGFORGE_USER_ID` can also be set for per-install usage tracking.
-"""
+    "- **When does a paid plan start?** After Stripe confirms payment and the signed webhook "
+    "updates this account. The Checkout return page is not itself an entitlement.\n"
+    "- **What if payment fails later?** Free limits apply. Use the Customer Portal — do not "
+    "start a second Checkout.\n"
+    "- **Is any plan uncapped?** No. Every plan has a documented daily and monthly generation cap.\n"
+    "- **Does upgrading change the generator?** No. Paid plans only raise quotas."
 )
+heuristic_notice()
+st.caption(
+    "Tax and refund obligations depend on the operator's registrations and jurisdiction; "
+    "TrueDraft does not claim Stripe Tax is enabled automatically."
+)
+render_public_footer()

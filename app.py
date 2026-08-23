@@ -1,146 +1,78 @@
-"""
-ListingForge – AI-Powered Product Listing Optimizer
-Main entry point & marketing home page.
-"""
+"""TrueDraft public landing page and authenticated product home."""
+
+from __future__ import annotations
 
 import streamlit as st
-from pathlib import Path
-import sys
 
-# Ensure core is importable
-sys.path.insert(0, str(Path(__file__).parent))
-from core.auth import auth_required, current_user, logout_button
-
-st.set_page_config(
-    page_title="ListingForge – AI Listing Optimizer",
-    page_icon="⚡",
-    layout="wide",
-    initial_sidebar_state="expanded",
+from core.auth import streamlit_current_user
+from core.copy import HERO_SUPPORT, PRODUCT_NAME, PROMISE, TAGLINE
+from core.ui import (
+    configure_page,
+    draft_banner,
+    heuristic_notice,
+    render_claim_categories,
+    render_feature_grid,
+    render_how_it_works,
+    render_plan_teaser,
+    render_positioning,
+    render_public_ctas,
+    render_public_footer,
+    render_quota_notice,
+    render_sidebar,
+    render_trust_grid,
 )
+from core.usage import get_usage
 
-# Custom CSS for polished look
-st.markdown("""
-<style>
-    .main-header {
-        font-size: 3.2rem;
-        font-weight: 800;
-        background: linear-gradient(135deg, #818cf8 0%, #c084fc 50%, #f472b6 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        margin-bottom: 0.2rem;
-    }
-    .sub-header {
-        font-size: 1.35rem;
-        color: #94a3b8;
-        margin-bottom: 2rem;
-    }
-    .feature-card {
-        background: #1e293b;
-        border: 1px solid #334155;
-        border-radius: 12px;
-        padding: 1.5rem;
-        height: 100%;
-        transition: border-color 0.2s;
-    }
-    .metric-box {
-        background: linear-gradient(145deg, #1e293b, #0f172a);
-        border: 1px solid #334155;
-        border-radius: 12px;
-        padding: 1.25rem;
-        text-align: center;
-    }
-    .stButton>button {
-        border-radius: 8px;
-        font-weight: 600;
-    }
-    div[data-testid="stSidebarNav"] {
-        padding-top: 1rem;
-    }
-</style>
-""", unsafe_allow_html=True)
+configure_page(
+    "Home",
+    "✍️",
+    browser_title=f"{PRODUCT_NAME} — Fact-locked listing drafts",
+)
+user = streamlit_current_user()
+render_sidebar(user)
 
-# Sidebar
-with st.sidebar:
-    st.markdown("## ⚡ ListingForge")
-    st.caption("Professional listing optimizer for Etsy, Shopify & Amazon sellers")
-    st.markdown("---")
-    if auth_required():
-        current_user()
-        user_name = st.session_state.get("listingforge_name", "Signed in user")
-        st.markdown(f"**Account:** {user_name}")
-        logout_button()
-    else:
-        st.info("Auth disabled for this environment. Set LISTINGFORGE_REQUIRE_AUTH=true to enforce login.")
-    st.markdown("---")
-    st.markdown("### Quick Nav")
-    st.page_link("app.py", label="Home", icon="🏠")
-    st.page_link("pages/1_Optimizer.py", label="Single Listing Optimizer", icon="✨")
-    st.page_link("pages/2_Bulk_Processor.py", label="Bulk Processor", icon="📦")
-    st.page_link("pages/3_SEO_Analyzer.py", label="SEO Analyzer", icon="📊")
-    st.page_link("pages/4_History.py", label="History", icon="🕘")
-    st.page_link("pages/5_About_Pricing.py", label="About & Pricing", icon="💎")
-    st.markdown("---")
-    st.info("This is a complete, monetizable micro-SaaS MVP. See the README for deployment & monetization strategies.")
+st.title(PRODUCT_NAME)
+st.subheader(TAGLINE)
+st.write(PROMISE)
+st.write(HERO_SUPPORT)
+draft_banner()
 
-# Hero
-st.markdown('<p class="main-header">ListingForge</p>', unsafe_allow_html=True)
-st.markdown('<p class="sub-header">Turn mediocre product listings into high-converting, SEO-optimized sales machines in seconds.</p>', unsafe_allow_html=True)
-
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.markdown("""
-    <div class="metric-box">
-        <h2 style="margin:0; color:#818cf8;">13</h2>
-        <p style="margin:0; color:#94a3b8;">Etsy tags optimized</p>
-    </div>
-    """, unsafe_allow_html=True)
-with col2:
-    st.markdown("""
-    <div class="metric-box">
-        <h2 style="margin:0; color:#c084fc;">A+ / F</h2>
-        <p style="margin:0; color:#94a3b8;">Real SEO grading</p>
-    </div>
-    """, unsafe_allow_html=True)
-with col3:
-    st.markdown("""
-    <div class="metric-box">
-        <h2 style="margin:0; color:#f472b6;">Bulk</h2>
-        <p style="margin:0; color:#94a3b8;">CSV in → optimized out</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-st.markdown("##")
-
-# Features
-st.markdown("### What ListingForge does")
-f1, f2, f3 = st.columns(3)
-with f1:
-    st.markdown("""
-    **✨ Intelligent Title Generation**  
-    Multiple conversion-tested structures. Keyword front-loading, power words, length optimization for Etsy (140) and Shopify (70).
-    """)
-with f2:
-    st.markdown("""
-    **📝 High-Converting Descriptions**  
-    Hook → Features → Benefits → Social proof → CTA structure used by top 1% sellers. Natural keyword weaving.
-    """)
-with f3:
-    st.markdown("""
-    **🏷️ Platform-Perfect Tags**  
-    Long-tail focused, character-limit aware, material + audience + occasion coverage. Fills all 13 Etsy slots intelligently.
-    """)
-
-st.markdown("---")
-
-# CTA
-st.markdown("### Ready to optimize?")
-c1, c2, c3 = st.columns([1, 1, 2])
-with c1:
-    if st.button("🚀 Open Optimizer", type="primary", use_container_width=True):
-        st.switch_page("pages/1_Optimizer.py")
-with c2:
-    if st.button("📦 Try Bulk Mode", use_container_width=True):
-        st.switch_page("pages/2_Bulk_Processor.py")
-
-st.markdown("---")
-st.caption("Built as a complete, sellable micro-SaaS. Deploy to Streamlit Community Cloud, Railway, or your own VPS in minutes. See README for full monetization playbook.")
+if user is None:
+    render_public_ctas()
+    st.divider()
+    render_positioning()
+    st.divider()
+    render_how_it_works()
+    st.divider()
+    render_feature_grid()
+    st.divider()
+    render_trust_grid()
+    st.divider()
+    render_claim_categories()
+    st.divider()
+    render_plan_teaser()
+    heuristic_notice()
+    render_public_footer()
+else:
+    usage = get_usage(user.id)
+    st.success(f"Welcome back, {user.name}.")
+    first, second, third = st.columns(3)
+    first.metric("Plan", str(usage["plan"]).title())
+    second.metric("Today (UTC)", f"{usage['daily']} / {usage['daily_limit']}")
+    third.metric("This month (UTC)", f"{usage['monthly']} / {usage['monthly_limit']}")
+    render_quota_notice(usage)
+    left, middle, right = st.columns(3)
+    with left:
+        if st.button("Create one draft", type="primary", use_container_width=True):
+            st.switch_page("pages/1_Optimizer.py")
+    with middle:
+        if st.button("Process a CSV", use_container_width=True):
+            st.switch_page("pages/2_Bulk_Processor.py")
+    with right:
+        if st.button("View plans", use_container_width=True):
+            st.switch_page("pages/5_About_Pricing.py")
+    st.divider()
+    render_how_it_works()
+    render_claim_categories()
+    heuristic_notice()
+    render_public_footer()

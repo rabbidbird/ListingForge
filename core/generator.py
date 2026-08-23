@@ -1,265 +1,489 @@
-"""
-ListingForge Core Generator — Fact-locked version.
+"""Fact-locked draft listing generator.
 
-Rules (non-negotiable):
-- Never invent materials, construction methods, ratings, stock status,
-  shipping claims, certifications, or social-proof statements the user
-  did not supply.
-- Missing fields stay missing. No random completion of factual attributes.
-- Output is always presented as a DRAFT that requires human review.
+Only user-supplied product attributes may appear. The optional LLM path is
+discarded wholesale if strict source-vocabulary validation fails.
 """
 
-import random
+from __future__ import annotations
+
 import re
-from typing import Dict, List, Optional, Any
-from .templates import POWER_WORDS, CATEGORY_LANGUAGE
+from typing import Any
+
+from .llm import generate_with_llm, is_llm_available
 from .seo_scorer import SEOScorer
-from .llm import is_llm_available, generate_with_llm
 
+PLATFORM_TITLE_LIMITS = {"etsy": 140, "shopify": 70, "amazon": 75}
+KNOWN_CATEGORIES = {
+    "jewelry",
+    "home_decor",
+    "apparel",
+    "art_prints",
+    "beauty",
+    "digital",
+    "default",
+}
 
-# Claims that must NEVER appear unless the user explicitly provided them
+# Product attributes and promotional assertions that require explicit sourcing.
 PROHIBITED_UNLESS_SUPPLIED = {
-    "bestseller", "best-seller", "best seller", "5-star", "five-star", "5 star",
-    "customer favorite", "top-rated", "top rated", "as seen on", "viral",
-    "limited stock", "only a few left", "selling fast", "while supplies last",
-    "ships fast", "free shipping", "ships free",
-    "handmade", "hand-made", "hand crafted", "handcrafted", "artisan",
-    "organic", "hypoallergenic", "tarnish-resistant", "tarnish resistant",
-    "cruelty-free", "cruelty free", "vegan", "clinical-grade", "clinical grade",
-    "museum-quality", "museum quality", "commercial use", "commercial-use",
-    "solid gold", "14k", "18k", "sterling silver", "sterling",
-    "genuine leather", "full-grain", "top-grain",
+    "#1",
+    "14k",
+    "18k",
+    "archival",
+    "artisan",
+    "authentic",
+    "bamboo",
+    "best seller",
+    "best-seller",
+    "bestseller",
+    "biodegradable",
+    "brass",
+    "breathable",
+    "certified",
+    "clinical grade",
+    "clinical-grade",
+    "commercial use",
+    "commercial-use",
+    "cotton",
+    "cruelty free",
+    "cruelty-free",
+    "custom",
+    "customer favorite",
+    "dishwasher safe",
+    "durable",
+    "eco friendly",
+    "eco-friendly",
+    "ethically sourced",
+    "exclusive",
+    "fade resistant",
+    "fade-resistant",
+    "fair trade",
+    "fair-trade",
+    "fast shipping",
+    "five star",
+    "five-star",
+    "food safe",
+    "free returns",
+    "free shipping",
+    "full grain",
+    "full-grain",
+    "genuine leather",
+    "gold",
+    "guaranteed",
+    "hand crafted",
+    "hand-made",
+    "handcrafted",
+    "handmade",
+    "hypoallergenic",
+    "instant download",
+    "lead free",
+    "lead-free",
+    "leather",
+    "lifetime warranty",
+    "limited edition",
+    "limited stock",
+    "linen",
+    "locally made",
+    "locally-made",
+    "made in",
+    "machine washable",
+    "medical grade",
+    "medical-grade",
+    "museum quality",
+    "museum-quality",
+    "natural",
+    "nickel free",
+    "nickel-free",
+    "non toxic",
+    "non-toxic",
+    "only a few left",
+    "organic",
+    "personalized",
+    "polyester",
+    "recycled",
+    "safe for",
+    "selling fast",
+    "ships fast",
+    "ships free",
+    "silk",
+    "silver",
+    "small batch",
+    "small-batch",
+    "solid gold",
+    "sterling",
+    "sterling silver",
+    "sustainable",
+    "tarnish resistant",
+    "tarnish-resistant",
+    "top grain",
+    "top rated",
+    "top-grain",
+    "top-rated",
+    "vegan",
+    "viral",
+    "water resistant",
+    "water-resistant",
+    "waterproof",
+    "while supplies last",
+    "wood",
+    "wool",
+    "wrinkle resistant",
+    "wrinkle-resistant",
+    "5 star",
+    "5-star",
+}
+
+# A prohibited term in a negative statement is not an affirmative product fact.
+# Keep the complete negative phrase, but never extract the term into a positive
+# title/tag/LLM claim (for example, "not waterproof" must not yield
+# "waterproof"). Punctuation starts a new clause so a negation does not leak
+# into an unrelated supplied fact.
+NEGATION_WORDS = frozenset(
+    {
+        "ain't",
+        "aint",
+        "aren't",
+        "arent",
+        "can't",
+        "cannot",
+        "cant",
+        "didn't",
+        "didnt",
+        "doesn't",
+        "doesnt",
+        "don't",
+        "dont",
+        "isn't",
+        "isnt",
+        "neither",
+        "never",
+        "no",
+        "non",
+        "nor",
+        "not",
+        "wasn't",
+        "wasnt",
+        "weren't",
+        "werent",
+        "without",
+        "won't",
+        "wont",
+    }
+)
+NEGATION_EXCEPTIONS = frozenset({"just", "merely", "only"})
+
+# Neutral connective vocabulary that an LLM may add without asserting a product fact.
+LLM_SAFE_GLUE_WORDS = {
+    "a",
+    "about",
+    "additional",
+    "and",
+    "attribute",
+    "attributes",
+    "before",
+    "by",
+    "confirm",
+    "description",
+    "detail",
+    "details",
+    "draft",
+    "for",
+    "from",
+    "human",
+    "in",
+    "information",
+    "introducing",
+    "is",
+    "item",
+    "key",
+    "listing",
+    "of",
+    "only",
+    "or",
+    "product",
+    "provided",
+    "publishing",
+    "requires",
+    "review",
+    "search",
+    "starting",
+    "supplied",
+    "tag",
+    "tags",
+    "term",
+    "the",
+    "this",
+    "title",
+    "to",
+    "use",
+    "user",
+    "verification",
+    "verify",
+    "with",
+    "you",
+    "your",
 }
 
 
 class ListingGenerator:
-    def __init__(self, use_llm: bool = None):
+    def __init__(self, use_llm: bool | None = None):
         self.scorer = SEOScorer()
-        if use_llm is None:
-            self.use_llm = is_llm_available()
-        else:
-            self.use_llm = bool(use_llm) and is_llm_available()
+        available = is_llm_available()
+        self.use_llm = available if use_llm is None else bool(use_llm) and available
 
-    def _normalize_category(self, category: str) -> str:
-        cat = (category or "default").lower().strip()
+    @staticmethod
+    def _normalize_category(category: str) -> str:
+        category = (category or "default").lower().strip()
         mapping = {
-            "jewellery": "jewelry", "jewellry": "jewelry",
-            "home": "home_decor", "decor": "home_decor", "home decor": "home_decor",
-            "clothing": "apparel", "clothes": "apparel", "fashion": "apparel",
-            "print": "art_prints", "prints": "art_prints", "wall art": "art_prints",
-            "skincare": "beauty", "makeup": "beauty", "cosmetics": "beauty",
-            "digital download": "digital", "printable": "digital", "template": "digital",
+            "jewellery": "jewelry",
+            "home": "home_decor",
+            "decor": "home_decor",
+            "clothing": "apparel",
+            "print": "art_prints",
+            "skincare": "beauty",
+            "digital download": "digital",
+            "printable": "digital",
         }
-        for key, val in mapping.items():
-            if key in cat:
-                return val
-        return cat if cat in CATEGORY_LANGUAGE else "default"
+        if category in KNOWN_CATEGORIES:
+            return category
+        for key, value in mapping.items():
+            if key in category:
+                return value
+        return "default"
 
-    def _smart_title(self, text: str) -> str:
-        if not text:
-            return text
-        words = text.split()
-        result = []
-        for w in words:
-            if "'s" in w.lower() and len(w) > 2:
-                base, _, rest = w.partition("'")
-                result.append(base.capitalize() + "'" + rest.lower())
-            elif "'" in w:
-                parts = w.split("'")
-                result.append("'" .join(p.capitalize() if p else "" for p in parts))
-            else:
-                result.append(w.capitalize())
-        return " ".join(result)
+    @staticmethod
+    def _clean_text(text: str) -> str:
+        text = re.sub(r"\s+", " ", str(text)).strip(" -|")
+        return re.sub(r"\b(\w+)\s+\1\b", r"\1", text, flags=re.IGNORECASE).strip()
 
-    def _clean_text(self, text: str) -> str:
-        text = re.sub(r"\s+", " ", text).strip(" -|")
-        text = re.sub(r"\b(\w+)\s+\1\b", r"\1", text, flags=re.IGNORECASE)
-        return text.strip()
+    @staticmethod
+    def _smart_title(text: str) -> str:
+        return " ".join(
+            word if any(char.isupper() for char in word[1:]) else word.capitalize()
+            for word in text.split()
+        )
 
-    def _contains_prohibited(self, text: str, user_supplied: set) -> List[str]:
-        found = []
-        lower = text.lower()
-        for term in PROHIBITED_UNLESS_SUPPLIED:
-            if term in lower and term not in user_supplied:
-                found.append(term)
-        return found
+    @staticmethod
+    def _source_blob(**fields: Any) -> str:
+        parts: list[str] = []
+        for value in fields.values():
+            values = value if isinstance(value, list) else [value]
+            parts.extend(str(item).lower().strip() for item in values if str(item).strip())
+        return "\n".join(parts)
 
-    def _user_supplied_terms(self, **fields) -> set:
-        supplied = set()
-        for v in fields.values():
-            if not v:
-                continue
-            items = v if isinstance(v, list) else [v]
-            for item in items:
-                text = str(item).lower().strip()
-                if not text:
+    @staticmethod
+    def _term_present_affirmatively(text: str, term: str) -> bool:
+        pattern = re.compile(rf"(?<!\w){re.escape(term)}(?!\w)", flags=re.IGNORECASE)
+        for match in pattern.finditer(text):
+            prefix = text[max(0, match.start() - 120) : match.start()].lower()
+            # Negation applies only inside the current clause.
+            clause_prefix = re.split(r"[\n.!?;,:]", prefix)[-1]
+            words = re.findall(r"[a-z]+(?:'[a-z]+)?", clause_prefix)[-6:]
+            negated = False
+            for index, word in enumerate(words):
+                if word not in NEGATION_WORDS:
                     continue
-                supplied.add(text)
-                supplied.update(re.findall(r"[a-z0-9\-]+", text))
-        return supplied
+                following = words[index + 1 :]
+                if following and following[0] in NEGATION_EXCEPTIONS:
+                    continue
+                negated = True
+            suffix = text[match.end() : match.end() + 24].lower()
+            if re.match(r"^\s*(?:(?:[:=\-–—])\s*|\(\s*)?(?:false|no|none|not|0)\b", suffix):
+                negated = True
+            if not negated:
+                return True
+        return False
 
-    def generate_title(self, product_name: str, primary_keyword: str = "", category: str = "default", audience: str = "", material: str = "", platform: str = "etsy", extra_keywords: List[str] = None) -> List[str]:
+    def _contains_unsourced_claims(self, text: str, source_blob: str) -> list[str]:
+        return sorted(
+            term
+            for term in PROHIBITED_UNLESS_SUPPLIED
+            if self._term_present_affirmatively(text, term)
+            and not self._term_present_affirmatively(source_blob, term)
+        )
+
+    @staticmethod
+    def _source_words(source_blob: str) -> set[str]:
+        return set(re.findall(r"[a-z0-9]+", source_blob.lower()))
+
+    def _validate_llm_result(
+        self, result: dict[str, Any], source_blob: str, platform: str
+    ) -> list[str]:
+        fields = [result.get("best_title"), result.get("description")]
+        fields.extend(result.get("titles") or [])
+        fields.extend(result.get("tags") or [])
+        if not all(isinstance(value, str) and value.strip() for value in fields):
+            return ["invalid LLM response structure"]
+        combined = " ".join(fields)
+        failures = self._contains_unsourced_claims(combined, source_blob)
+
+        source_words = self._source_words(source_blob)
+        candidate_words = set(re.findall(r"[a-z0-9]+", combined.lower()))
+        unsourced_words = candidate_words - source_words - LLM_SAFE_GLUE_WORDS
+        if unsourced_words:
+            failures.append("unsourced vocabulary: " + ", ".join(sorted(unsourced_words)[:12]))
+
+        source_numbers = set(re.findall(r"\d+(?:\.\d+)?", source_blob))
+        candidate_numbers = set(re.findall(r"\d+(?:\.\d+)?", combined))
+        if candidate_numbers - source_numbers:
+            failures.append("unsourced numeric claim")
+
+        title_limit = PLATFORM_TITLE_LIMITS.get(platform, 70)
+        candidate_titles = [result.get("best_title"), *(result.get("titles") or [])]
+        if any(len(str(title)) > title_limit for title in candidate_titles):
+            failures.append("title exceeds platform limit")
+        if platform == "etsy" and any(len(tag) > 20 for tag in result.get("tags") or []):
+            failures.append("Etsy tag exceeds 20 characters")
+        return failures
+
+    def generate_title(
+        self,
+        product_name: str,
+        primary_keyword: str = "",
+        category: str = "default",
+        audience: str = "",
+        material: str = "",
+        platform: str = "etsy",
+        extra_keywords: list[str] | None = None,
+    ) -> list[str]:
+        del category
         product = product_name.strip()
         keyword = (primary_keyword or product).strip()
-        audience = audience.strip()
-        material = material.strip()
         extras = extra_keywords or []
-
-        variants = []
-        t1 = self._smart_title(keyword)
-        if material and material.lower() not in keyword.lower():
-            t1 += f" - {self._smart_title(material)}"
+        variants = [keyword, product]
+        if material:
+            variants.append(f"{keyword} | {material}")
         if audience:
-            t1 += f" for {self._smart_title(audience)}"
-        variants.append(t1)
-
-        t2 = self._smart_title(product)
+            variants.append(f"{keyword} for {audience}")
+        if material and audience:
+            variants.append(f"{keyword} | {material} | for {audience}")
+        variants.extend(f"{keyword} | {extra}" for extra in extras[:2])
         if keyword.lower() not in product.lower():
-            t2 = f"{self._smart_title(keyword)} | {self._smart_title(product)}"
-        variants.append(t2)
+            variants.append(f"{keyword} | {product}")
 
-        if audience:
-            t3 = f"{self._smart_title(keyword)} for {self._smart_title(audience)}"
-            if material:
-                t3 += f" | {self._smart_title(material)}"
-            variants.append(t3)
-        else:
-            variants.append(f"{self._smart_title(keyword)} | {self._smart_title(product)}")
+        maximum = PLATFORM_TITLE_LIMITS.get(platform, 70)
+        cleaned: list[str] = []
+        for variant in variants:
+            value = self._smart_title(self._clean_text(variant))
+            if len(value) > maximum:
+                value = value[:maximum].rsplit(" ", 1)[0].rstrip(" -|")
+            if value and value.lower() not in {existing.lower() for existing in cleaned}:
+                cleaned.append(value)
+        return cleaned[:5] or [self._smart_title(keyword)]
 
-        t4 = f"{self._smart_title(keyword)} - Quality {self._smart_title(material) if material else 'Design'}"
-        variants.append(self._clean_text(t4))
-
-        if extras:
-            variants.append(f"{self._smart_title(keyword)} | {self._smart_title(extras[0])}")
-        else:
-            variants.append(f"{self._smart_title(product)} | {self._smart_title(keyword)}")
-
-        max_len = 140 if platform == "etsy" else 70
-        cleaned = []
-        seen = set()
-        for v in variants:
-            v = self._clean_text(v)
-            if len(v) > max_len:
-                v = v[: max_len - 3].rsplit(" ", 1)[0] + "..."
-            key = v.lower()[:50]
-            if v and len(v) > 10 and key not in seen:
-                cleaned.append(v)
-                seen.add(key)
-
-        return cleaned[:5] if cleaned else [self._smart_title(keyword)]
-
-    def generate_description(self, product_name: str, primary_keyword: str = "", features: List[str] = None, category: str = "default", material: str = "", audience: str = "", include_emoji: bool = True) -> str:
+    def generate_description(
+        self,
+        product_name: str,
+        primary_keyword: str = "",
+        features: list[str] | None = None,
+        category: str = "default",
+        material: str = "",
+        audience: str = "",
+        include_emoji: bool = True,
+    ) -> str:
+        del category
         product = product_name.strip()
         keyword = (primary_keyword or product).strip()
-        features = [f.strip() for f in (features or []) if f.strip()]
-        material = material.strip()
-        audience = audience.strip()
-
-        lines = []
-        lines.append(f"Introducing the {product}.")
+        features = [feature.strip() for feature in (features or []) if feature.strip()]
+        lines = [f"DRAFT — Introducing the {product}."]
         if keyword.lower() != product.lower():
-            lines.append(f'Optimized around the search term "{keyword}".')
+            lines.append(f'User-supplied search term: "{keyword}".')
         lines.append("")
-
         if features:
-            lines.append("Key details you provided:")
-            prefix = "• " if not include_emoji else "✨ "
-            for f in features[:8]:
-                lines.append(f"{prefix}{f}")
-            lines.append("")
+            lines.append("Details you provided:")
+            prefix = "•" if not include_emoji else "•"
+            lines.extend(f"{prefix} {feature}" for feature in features[:8])
         else:
-            lines.append("Key details: (none supplied — add specific features before publishing)")
-            lines.append("")
+            lines.append(
+                "Details you provided: none. Add product-specific facts before publishing."
+            )
+        if material or audience:
+            lines.extend(["", "Additional information you provided:"])
+            if material:
+                lines.append(f"• Material / attribute: {material}")
+            if audience:
+                lines.append(f"• Audience: {audience}")
+        lines.extend(
+            [
+                "",
+                "Verify every material, claim, and product detail against the actual item before publishing.",
+                "",
+                "— TrueDraft starting draft; human review required.",
+            ]
+        )
+        return "\n".join(lines).strip()
 
-        facts = []
-        if material:
-            facts.append(f"Material / attribute: {material}")
-        if audience:
-            facts.append(f"Intended for: {audience}")
-        if facts:
-            lines.append("Additional details:")
-            for f in facts:
-                lines.append(f"• {f}")
-            lines.append("")
+    @staticmethod
+    def _fit_tag(tag: str, platform: str) -> str:
+        value = re.sub(r"\s+", " ", tag.lower()).strip(" -'")
+        if platform == "etsy" and len(value) > 20:
+            value = value[:20].rsplit(" ", 1)[0].strip(" -'")
+        return value
 
-        lines.append("Review this draft carefully. Confirm every material, claim, and detail matches your actual product before publishing.")
-        lines.append("")
-        lines.append("— Generated as a starting draft by ListingForge. Human verification required.")
-
-        description = "\n".join(lines)
-        description = re.sub(r"\n{3,}", "\n\n", description).strip()
-        return description
-
-    def generate_tags(self, product_name: str, primary_keyword: str = "", category: str = "default", material: str = "", audience: str = "", extra_keywords: List[str] = None, platform: str = "etsy", max_tags: int = 13) -> List[str]:
-        product = product_name.lower().strip()
-        keyword = (primary_keyword or product).lower().strip()
-        material = material.lower().strip()
-        audience = audience.lower().strip()
-        extra = [k.lower().strip() for k in (extra_keywords or []) if k.strip()]
-
-        candidates = []
-        candidates.append(keyword)
-        if product != keyword:
+    def generate_tags(
+        self,
+        product_name: str,
+        primary_keyword: str = "",
+        category: str = "default",
+        material: str = "",
+        audience: str = "",
+        extra_keywords: list[str] | None = None,
+        platform: str = "etsy",
+        max_tags: int = 13,
+    ) -> list[str]:
+        del category
+        product = product_name.strip()
+        keyword = (primary_keyword or product).strip()
+        candidates = [keyword]
+        if product.lower() != keyword.lower():
             candidates.append(product)
-
         if material:
-            candidates.append(material)
-            candidates.append(f"{material} {keyword}".strip())
-            candidates.append(f"{keyword} {material}".strip())
-
+            candidates.extend([material, f"{material} {keyword}"])
         if audience:
             candidates.append(f"{keyword} for {audience}")
-            candidates.append(f"gift for {audience}")
+        candidates.extend(extra_keywords or [])
 
-        for ek in extra:
-            candidates.append(ek)
-            if keyword not in ek:
-                candidates.append(f"{ek} {keyword}")
+        source_blob = self._source_blob(
+            product_name=product_name,
+            primary_keyword=primary_keyword,
+            material=material,
+            audience=audience,
+            extra_keywords=extra_keywords or [],
+        )
 
-        safe = [f"{keyword} gift", f"gift {keyword}", "unique gift", "thoughtful gift"]
-        for s in safe:
-            candidates.append(s)
+        # Source-grounded subphrases help fill available slots without inventing attributes.
+        for phrase in [product, keyword, *(extra_keywords or [])]:
+            words = phrase.split()
+            candidates.extend(" ".join(words[index : index + 2]) for index in range(len(words) - 1))
+            candidates.extend(words)
 
-        def _fit(tag: str) -> str:
-            tag = re.sub(r"\s+", " ", tag).strip()
-            tag = re.sub(r"\b(\w+)\s+\1\b", r"\1", tag, flags=re.IGNORECASE)
-            if platform == "etsy" and len(tag) > 20:
-                tag = tag[:20].rsplit(" ", 1)[0].strip()
-            return tag
-
-        cleaned = []
-        for tag in candidates:
-            tag = _fit(tag)
-            if tag and len(tag) >= 3 and tag not in cleaned:
-                cleaned.append(tag)
-
-        final = []
-        primary_tag = _fit(keyword)
-        if primary_tag:
-            final.append(primary_tag)
-
-        for t in cleaned:
+        final: list[str] = []
+        for candidate in candidates:
+            tag = self._fit_tag(candidate, platform)
+            if self._contains_unsourced_claims(tag, source_blob):
+                continue
+            if len(tag) >= 2 and tag not in final:
+                final.append(tag)
             if len(final) >= max_tags:
                 break
-            if t.lower() not in [x.lower() for x in final]:
-                final.append(t)
+        return final
 
-        while len(final) < max_tags:
-            pad = _fit(f"{keyword} idea") if keyword else "gift idea"
-            if pad and pad.lower() not in [x.lower() for x in final]:
-                final.append(pad)
-            else:
-                break
-
-        return final[:max_tags]
-
-    def validate_output(self, text: str, user_supplied: set) -> List[str]:
-        return self._contains_prohibited(text, user_supplied)
-
-    def generate_full_listing(self, product_name: str, primary_keyword: str = "", category: str = "default", material: str = "", audience: str = "", features: List[str] = None, extra_keywords: List[str] = None, platform: str = "etsy", tone: str = "professional", force_template: bool = False) -> Dict:
+    def generate_full_listing(
+        self,
+        product_name: str,
+        primary_keyword: str = "",
+        category: str = "default",
+        material: str = "",
+        audience: str = "",
+        features: list[str] | None = None,
+        extra_keywords: list[str] | None = None,
+        platform: str = "etsy",
+        tone: str = "professional",
+        force_template: bool = False,
+    ) -> dict[str, Any]:
+        del tone
         features = features or []
         extra_keywords = extra_keywords or []
-        user_supplied = self._user_supplied_terms(
+        source_blob = self._source_blob(
             product_name=product_name,
             primary_keyword=primary_keyword,
             material=material,
@@ -267,10 +491,10 @@ class ListingGenerator:
             features=features,
             extra_keywords=extra_keywords,
         )
-
         llm_result = None
+        fact_lock_rejections: list[str] = []
         if self.use_llm and not force_template:
-            llm_result = generate_with_llm(
+            candidate = generate_with_llm(
                 product_name=product_name,
                 primary_keyword=primary_keyword,
                 category=category,
@@ -280,6 +504,10 @@ class ListingGenerator:
                 extra_keywords=extra_keywords,
                 platform=platform,
             )
+            if candidate:
+                fact_lock_rejections = self._validate_llm_result(candidate, source_blob, platform)
+                if not fact_lock_rejections:
+                    llm_result = candidate
 
         if llm_result:
             titles = llm_result.get("titles") or [llm_result["best_title"]]
@@ -289,28 +517,59 @@ class ListingGenerator:
             source = "llm"
             model = llm_result.get("meta", {}).get("model")
         else:
-            titles = self.generate_title(product_name=product_name, primary_keyword=primary_keyword, category=category, audience=audience, material=material, platform=platform, extra_keywords=extra_keywords)
-            description = self.generate_description(product_name=product_name, primary_keyword=primary_keyword, features=features, category=category, material=material, audience=audience)
-            tags = self.generate_tags(product_name=product_name, primary_keyword=primary_keyword, category=category, material=material, audience=audience, extra_keywords=extra_keywords, platform=platform)
-            best_title = titles[0] if titles else product_name
+            titles = self.generate_title(
+                product_name,
+                primary_keyword,
+                category,
+                audience,
+                material,
+                platform,
+                extra_keywords,
+            )
+            description = self.generate_description(
+                product_name,
+                primary_keyword,
+                features,
+                category,
+                material,
+                audience,
+            )
+            tags = self.generate_tags(
+                product_name,
+                primary_keyword,
+                category,
+                material,
+                audience,
+                extra_keywords,
+                platform,
+            )
+            best_title = titles[0]
             source = "template"
             model = None
 
-        combined = best_title + " " + description + " " + " ".join(tags)
-        warnings = self.validate_output(combined, user_supplied)
+        combined = f"{' '.join(titles)} {description} {' '.join(tags)}"
+        warnings = self._contains_unsourced_claims(combined, source_blob)
+        if warnings:
+            raise RuntimeError("Fact-lock invariant failed; output was not returned.")
 
         title_score = self.scorer.score_title(best_title, primary_keyword or product_name, platform)
-        desc_score = self.scorer.score_description(description, primary_keyword or product_name, extra_keywords)
+        description_score = self.scorer.score_description(
+            description, primary_keyword or product_name, extra_keywords
+        )
         tags_score = self.scorer.score_tags(tags, primary_keyword or product_name, platform)
-        overall = self.scorer.overall_score(title_score, desc_score, tags_score)
-
+        overall = self.scorer.overall_score(title_score, description_score, tags_score)
         return {
             "titles": titles,
             "best_title": best_title,
             "description": description,
             "tags": tags,
             "platform": platform,
-            "scores": {"title": title_score, "description": desc_score, "tags": tags_score, "overall": overall},
+            "scores": {
+                "title": title_score,
+                "description": description_score,
+                "tags": tags_score,
+                "overall": overall,
+            },
             "meta": {
                 "product_name": product_name,
                 "primary_keyword": primary_keyword or product_name,
@@ -320,11 +579,12 @@ class ListingGenerator:
                 "source": source,
                 "model": model,
                 "is_draft": True,
-                "claim_warnings": warnings,
+                "claim_warnings": [],
+                "llm_fact_lock_fallback": bool(fact_lock_rejections),
+                "llm_rejection_reasons": fact_lock_rejections,
             },
             "disclaimer": (
-                "DRAFT ONLY — Verify every material, claim, rating, shipping statement, "
-                "and product attribute against your actual product before publishing. "
-                "ListingForge does not invent facts; any remaining claims must be confirmed by you."
+                "DRAFT — verify before publishing. Confirm every material, claim, rating, "
+                "shipping statement, and product attribute against your actual product."
             ),
         }

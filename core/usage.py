@@ -1,418 +1,242 @@
-"""
-Usage tracking with per-user plans and quota counters.
-
-Tracks:
-- plan by user (`usage_users`)
-- daily counts by user/date (`usage_daily`)
-- monthly counts by user/month (`usage_monthly`)
-
-Persisted to SQLite in `data/listings.db`.
-"""
+"""Transactional per-user entitlements, quotas, and generation rate limits."""
 
 from __future__ import annotations
 
-import os
-import sqlite3
-from datetime import date
-from pathlib import Path
-from typing import Dict, Optional
+import uuid
+from datetime import UTC, datetime, timedelta
+
+from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy.orm import Session
+
+from .database import session_scope
+from .models import Subscription, UsageEvent, User, utcnow
+from .plans import (
+    ACTIVE_SUBSCRIPTION_STATUSES,
+    FAILED_PAYMENT_STATUSES,
+    PLANS,
+    get_plan_policy,
+    subscription_must_use_portal,
+)
+
+FREE_DAILY_LIMIT = PLANS["free"].daily_generations
+FREE_MONTHLY_LIMIT = PLANS["free"].monthly_generations
 
 
-DB_PATH = Path(__file__).parent.parent / "data" / "listings.db"
-USAGE_FILE = Path(__file__).parent.parent / "data" / "usage.json"
-MIGRATION_MARKER = Path(__file__).parent.parent / "data" / ".usage_json_migrated"
+class UsageLimitError(RuntimeError):
+    def __init__(self, message: str, code: str = "limit_reached") -> None:
+        super().__init__(message)
+        self.code = code
 
 
-def _env_limit(name: str, default: int) -> int:
-    value = os.environ.get(name)
-    try:
-        return int(value) if value is not None else default
-    except ValueError:
-        return default
+def _period_starts(now: datetime) -> tuple[datetime, datetime, datetime]:
+    day_start = datetime(now.year, now.month, now.day, tzinfo=UTC)
+    month_start = datetime(now.year, now.month, 1, tzinfo=UTC)
+    minute_start = now - timedelta(seconds=60)
+    return day_start, month_start, minute_start
 
 
-PLANS = {
-    "free": {
-        "label": "Free",
-        "daily": _env_limit("LISTINGFORGE_FREE_DAILY_LIMIT", 8),
-        "monthly": _env_limit("LISTINGFORGE_FREE_MONTHLY_LIMIT", 40),
-    },
-    "starter": {
-        "label": "Starter",
-        "daily": _env_limit("LISTINGFORGE_STARTER_DAILY_LIMIT", 50),
-        "monthly": _env_limit("LISTINGFORGE_STARTER_MONTHLY_LIMIT", 500),
-    },
-    "pro": {
-        "label": "Pro",
-        "daily": None,
-        "monthly": None,
-    },
-    "agency": {
-        "label": "Agency",
-        "daily": None,
-        "monthly": None,
-    },
-}
-
-def normalize_plan(plan: Optional[str]) -> str:
-    if plan and str(plan).strip() in PLANS:
-        return str(plan).strip()
-    return DEFAULT_PLAN
-
-
-DEFAULT_PLAN = normalize_plan(os.environ.get("LISTINGFORGE_DEFAULT_PLAN", "free"))
-
-
-def _connect():
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("PRAGMA foreign_keys = ON;")
-    return conn
-
-
-def _ensure_schema(conn: sqlite3.Connection):
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS usage_users (
-            user_id TEXT PRIMARY KEY,
-            plan TEXT NOT NULL,
-            total INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        )
-        """
+def _countable(now: datetime):
+    return or_(
+        UsageEvent.status == "completed",
+        and_(UsageEvent.status == "reserved", UsageEvent.created_at >= now - timedelta(minutes=5)),
     )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS usage_daily (
-            user_id TEXT NOT NULL,
-            usage_date TEXT NOT NULL,
-            count INTEGER NOT NULL DEFAULT 0,
-            PRIMARY KEY (user_id, usage_date),
-            FOREIGN KEY (user_id) REFERENCES usage_users(user_id) ON DELETE CASCADE
+
+
+def _subscription_for(session, user_id: uuid.UUID) -> Subscription | None:
+    return session.scalar(select(Subscription).where(Subscription.user_id == user_id))
+
+
+def _effective_plan(session, user_id: uuid.UUID) -> str:
+    subscription = _subscription_for(session, user_id)
+    if (
+        subscription is not None
+        and subscription.plan in PLANS
+        and subscription.plan != "free"
+        and subscription.status in ACTIVE_SUBSCRIPTION_STATUSES
+    ):
+        return subscription.plan
+    return "free"
+
+
+def reserve_generation(
+    user_id: uuid.UUID, *, mode: str, provider: str, now: datetime | None = None
+) -> tuple[uuid.UUID, str]:
+    now = now or utcnow()
+    day_start, month_start, minute_start = _period_starts(now)
+    with session_scope() as session:
+        user = session.scalar(select(User).where(User.id == user_id).with_for_update())
+        if user is None or not user.is_active:
+            raise UsageLimitError("Active account required.", "unauthorized")
+
+        plan = _effective_plan(session, user_id)
+        policy = get_plan_policy(plan)
+        base = [
+            UsageEvent.user_id == user_id,
+            UsageEvent.kind == "generation",
+            _countable(now),
+        ]
+        daily = (
+            session.scalar(
+                select(func.count())
+                .select_from(UsageEvent)
+                .where(*base, UsageEvent.created_at >= day_start)
+            )
+            or 0
         )
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS usage_monthly (
-            user_id TEXT NOT NULL,
-            usage_month TEXT NOT NULL,
-            count INTEGER NOT NULL DEFAULT 0,
-            PRIMARY KEY (user_id, usage_month),
-            FOREIGN KEY (user_id) REFERENCES usage_users(user_id) ON DELETE CASCADE
+        monthly = (
+            session.scalar(
+                select(func.count())
+                .select_from(UsageEvent)
+                .where(*base, UsageEvent.created_at >= month_start)
+            )
+            or 0
         )
-        """
+        recent = (
+            session.scalar(
+                select(func.count())
+                .select_from(UsageEvent)
+                .where(*base, UsageEvent.created_at >= minute_start)
+            )
+            or 0
+        )
+
+        if daily >= policy.daily_generations:
+            raise UsageLimitError(
+                f"{policy.name} daily limit reached ({policy.daily_generations}, UTC).",
+                "daily_limit",
+            )
+        if monthly >= policy.monthly_generations:
+            raise UsageLimitError(
+                f"{policy.name} monthly limit reached ({policy.monthly_generations}, UTC).",
+                "monthly_limit",
+            )
+        if recent >= policy.per_minute_generations:
+            raise UsageLimitError(
+                "Generation rate limit reached. Wait a minute and try again.", "rate_limit"
+            )
+        if provider == "llm":
+            llm_daily = (
+                session.scalar(
+                    select(func.count())
+                    .select_from(UsageEvent)
+                    .where(
+                        *base,
+                        UsageEvent.created_at >= day_start,
+                        UsageEvent.provider == "llm",
+                    )
+                )
+                or 0
+            )
+            if llm_daily >= policy.daily_llm_generations:
+                raise UsageLimitError(
+                    f"{policy.name} daily LLM limit reached ({policy.daily_llm_generations}, UTC). "
+                    "Use template mode or try tomorrow.",
+                    "llm_daily_limit",
+                )
+
+        event = UsageEvent(user_id=user_id, mode=mode, provider=provider, created_at=now)
+        session.add(event)
+        session.flush()
+        return event.id, plan
+
+
+def complete_generation(
+    event_id: uuid.UUID, listing_id: uuid.UUID, *, session: Session | None = None
+) -> None:
+    statement = (
+        update(UsageEvent)
+        .where(UsageEvent.id == event_id, UsageEvent.status == "reserved")
+        .values(
+            status="completed",
+            completed_at=utcnow(),
+            details_json={"listing_id": str(listing_id)},
+        )
     )
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_daily_user_date ON usage_daily(user_id, usage_date)")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_monthly_user_month ON usage_monthly(user_id, usage_month)")
-    conn.commit()
-
-
-def _to_int(value, default: int = 0) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _iter_legacy_usage_records():
-    if not USAGE_FILE.exists():
-        return []
-
-    try:
-        import json
-
-        data = json.loads(USAGE_FILE.read_text())
-    except Exception:
-        return []
-
-    if not isinstance(data, dict):
-        return []
-
-    if "users" in data and isinstance(data["users"], dict):
-        records = []
-        for user_id, payload in data["users"].items():
-            if not isinstance(payload, dict):
-                continue
-            plan = normalize_plan(payload.get("plan"))
-            records.append((str(user_id), plan, payload))
-        return records
-
-    # Backward-compatible legacy shape:
-    # {"daily":..., "monthly":..., "total":..., "plan": "free"}
-    legacy_plan = normalize_plan(data.get("plan"))
-    return [("anonymous", legacy_plan, data)]
-
-
-def _normalize_map(value) -> Dict[str, int]:
-    if not isinstance(value, dict):
-        return {}
-    return {str(k): _to_int(v, 0) for k, v in value.items() if isinstance(k, str)}
-
-
-def _migrate_legacy_usage(conn: sqlite3.Connection):
-    if MIGRATION_MARKER.exists():
+    if session is not None:
+        session.execute(statement)
         return
-    records = _iter_legacy_usage_records()
-    if not records:
-        return
+    with session_scope() as own_session:
+        own_session.execute(statement)
 
-    today = date.today().isoformat()
-    for user_id, plan, payload in records:
-        daily = _normalize_map(payload.get("daily"))
-        monthly = _normalize_map(payload.get("monthly"))
-        total = _to_int(payload.get("total"), 0)
 
-        # Ensure user exists
-        row = conn.execute("SELECT plan FROM usage_users WHERE user_id = ?", (user_id,)).fetchone()
-        if row is None:
-            conn.execute(
-                """
-                INSERT INTO usage_users (user_id, plan, total, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (user_id, plan, max(0, total), today, today),
+def fail_generation(event_id: uuid.UUID, reason: str = "generation_failed") -> None:
+    with session_scope() as session:
+        session.execute(
+            update(UsageEvent)
+            .where(UsageEvent.id == event_id, UsageEvent.status == "reserved")
+            .values(status="failed", completed_at=utcnow(), details_json={"reason": reason[:120]})
+        )
+
+
+def get_usage(user_id: uuid.UUID, *, now: datetime | None = None) -> dict[str, object]:
+    now = now or utcnow()
+    day_start, month_start, _ = _period_starts(now)
+    with session_scope() as session:
+        subscription = _subscription_for(session, user_id)
+        plan = _effective_plan(session, user_id)
+        policy = get_plan_policy(plan)
+        status = subscription.status if subscription is not None else "free"
+        stored_plan = subscription.plan if subscription is not None else "free"
+        period_end = (
+            subscription.current_period_end.isoformat()
+            if subscription is not None and subscription.current_period_end is not None
+            else None
+        )
+        base = [
+            UsageEvent.user_id == user_id,
+            UsageEvent.kind == "generation",
+            _countable(now),
+        ]
+        daily = (
+            session.scalar(
+                select(func.count())
+                .select_from(UsageEvent)
+                .where(*base, UsageEvent.created_at >= day_start)
             )
-        else:
-            # Keep existing plan but import historical total.
-            conn.execute(
-                """
-                UPDATE usage_users
-                SET total = COALESCE(total, 0) + ?, updated_at = ?
-                WHERE user_id = ?
-                """,
-                (total, today, user_id),
+            or 0
+        )
+        monthly = (
+            session.scalar(
+                select(func.count())
+                .select_from(UsageEvent)
+                .where(*base, UsageEvent.created_at >= month_start)
             )
-
-        for day, count in daily.items():
-            if count <= 0:
-                continue
-            conn.execute(
-                """
-                INSERT INTO usage_daily (user_id, usage_date, count)
-                VALUES (?, ?, ?)
-                ON CONFLICT(user_id, usage_date) DO UPDATE SET
-                    count = usage_daily.count + excluded.count
-                """,
-                (user_id, day, count),
-            )
-
-        for usage_month, count in monthly.items():
-            if count <= 0:
-                continue
-            conn.execute(
-                """
-                INSERT INTO usage_monthly (user_id, usage_month, count)
-                VALUES (?, ?, ?)
-                ON CONFLICT(user_id, usage_month) DO UPDATE SET
-                    count = usage_monthly.count + excluded.count
-                """,
-                (user_id, usage_month, count),
-            )
-
-    conn.commit()
-    try:
-        MIGRATION_MARKER.write_text(today, encoding="utf-8")
-    except Exception:
-        pass
+            or 0
+        )
+        return {
+            "plan": plan,
+            "stored_plan": stored_plan,
+            "status": status,
+            "period_end": period_end,
+            "daily": daily,
+            "monthly": monthly,
+            "daily_limit": policy.daily_generations,
+            "monthly_limit": policy.monthly_generations,
+            "daily_remaining": max(0, policy.daily_generations - daily),
+            "monthly_remaining": max(0, policy.monthly_generations - monthly),
+            "can_generate": daily < policy.daily_generations
+            and monthly < policy.monthly_generations,
+            "bulk_rows_per_job": policy.bulk_rows_per_job,
+            "daily_llm_limit": policy.daily_llm_generations,
+            "has_stripe_customer": bool(
+                subscription is not None and subscription.stripe_customer_id
+            ),
+            "manage_in_portal": subscription_must_use_portal(
+                status,
+                subscription.stripe_subscription_id if subscription is not None else None,
+            ),
+            "payment_failed": status in FAILED_PAYMENT_STATUSES,
+        }
 
 
-def get_plan(user_id: str = "anonymous") -> str:
-    return get_usage(user_id)["plan"]
-
-
-def set_plan(user_id: str = "anonymous", plan: str = DEFAULT_PLAN) -> str:
-    user_id = user_id or "anonymous"
-    plan = normalize_plan(plan)
-    today = date.today().isoformat()
-    conn = _connect()
-    _ensure_schema(conn)
-    _migrate_legacy_usage(conn)
-
-    conn.execute(
-        """
-        INSERT INTO usage_users (user_id, plan, total, created_at, updated_at)
-        VALUES (?, ?, 0, ?, ?)
-        ON CONFLICT(user_id) DO UPDATE SET
-            plan = excluded.plan,
-            updated_at = excluded.updated_at
-        """,
-        (user_id, plan, today, today),
-    )
-    conn.commit()
-    conn.close()
+def assert_bulk_job_allowed(user_id: uuid.UUID, row_count: int) -> str:
+    if row_count < 1:
+        raise UsageLimitError("The CSV has no rows to process.", "empty_bulk")
+    with session_scope() as session:
+        plan = _effective_plan(session, user_id)
+    cap = get_plan_policy(plan).bulk_rows_per_job
+    if row_count > cap:
+        raise UsageLimitError(
+            f"{get_plan_policy(plan).name} bulk jobs are capped at {cap} rows.", "bulk_cap"
+        )
     return plan
-
-
-def _remaining(limit: Optional[int], used: int) -> Optional[int]:
-    if limit is None:
-        return None
-    return max(0, limit - used)
-
-
-def get_usage(user_id: str = "anonymous") -> Dict:
-    user_id = user_id or "anonymous"
-    today = date.today().isoformat()
-    month = date.today().strftime("%Y-%m")
-    now = date.today().isoformat()
-
-    conn = _connect()
-    conn.row_factory = sqlite3.Row
-    _ensure_schema(conn)
-    _migrate_legacy_usage(conn)
-
-    user_row = conn.execute(
-        "SELECT plan, total FROM usage_users WHERE user_id = ?",
-        (user_id,),
-    ).fetchone()
-    if user_row is None:
-        plan = DEFAULT_PLAN
-        conn.execute(
-            """
-            INSERT INTO usage_users (user_id, plan, total, created_at, updated_at)
-            VALUES (?, ?, 0, ?, ?)
-            """,
-            (user_id, plan, now, now),
-        )
-    else:
-        plan = normalize_plan(user_row["plan"])
-
-    conn.execute(
-        "UPDATE usage_users SET updated_at = ? WHERE user_id = ?",
-        (now, user_id),
-    )
-
-    if user_row is not None and int(user_row["total"] or 0) < 0:
-        conn.execute("UPDATE usage_users SET total = 0 WHERE user_id = ?", (user_id,))
-
-    today = date.today().isoformat()
-    month = date.today().strftime("%Y-%m")
-
-    daily_count = conn.execute(
-        "SELECT count FROM usage_daily WHERE user_id = ? AND usage_date = ?",
-        (user_id, today),
-    ).fetchone()
-    daily_count = int(daily_count["count"]) if daily_count else 0
-
-    monthly_count = conn.execute(
-        "SELECT count FROM usage_monthly WHERE user_id = ? AND usage_month = ?",
-        (user_id, month),
-    ).fetchone()
-    monthly_count = int(monthly_count["count"]) if monthly_count else 0
-
-    if user_row is not None:
-        total = int(user_row["total"] or 0)
-    else:
-        total = conn.execute("SELECT total FROM usage_users WHERE user_id = ?", (user_id,)).fetchone()["total"]
-        total = int(total or 0)
-
-    limits = PLANS[plan]
-    daily_limit = limits["daily"]
-    monthly_limit = limits["monthly"]
-
-    daily_remaining = _remaining(daily_limit, daily_count)
-    monthly_remaining = _remaining(monthly_limit, monthly_count)
-    if daily_remaining is None and monthly_remaining is None:
-        remaining_total = None
-    elif daily_remaining is None:
-        remaining_total = monthly_remaining
-    elif monthly_remaining is None:
-        remaining_total = daily_remaining
-    else:
-        remaining_total = min(daily_remaining, monthly_remaining)
-
-    can_generate = (
-        (daily_limit is None or daily_count < daily_limit)
-        and (monthly_limit is None or monthly_count < monthly_limit)
-    )
-
-    conn.commit()
-    conn.close()
-
-    return {
-        "user_id": user_id,
-        "plan": plan,
-        "plan_label": limits["label"],
-        "daily": daily_count,
-        "monthly": monthly_count,
-        "total": total,
-        "daily_limit": daily_limit,
-        "monthly_limit": monthly_limit,
-        "daily_remaining": daily_remaining,
-        "monthly_remaining": monthly_remaining,
-        "remaining_total": remaining_total,
-        "can_generate": can_generate,
-    }
-
-
-def record_generation(user_id: str = "anonymous") -> Dict:
-    """Record one generation and return updated usage."""
-    usage = get_usage(user_id)
-    if not usage["can_generate"]:
-        return usage
-
-    user_id = user_id or "anonymous"
-    today = date.today().isoformat()
-    month = date.today().strftime("%Y-%m")
-    now = date.today().isoformat()
-    conn = _connect()
-    _ensure_schema(conn)
-    _migrate_legacy_usage(conn)
-
-    conn.execute(
-        """
-        INSERT INTO usage_users (user_id, plan, total, created_at, updated_at)
-        VALUES (?, ?, 0, ?, ?)
-        ON CONFLICT(user_id) DO UPDATE SET updated_at = excluded.updated_at
-        """,
-        (user_id, usage["plan"], now, now),
-    )
-    conn.execute(
-        """
-        INSERT INTO usage_daily (user_id, usage_date, count)
-        VALUES (?, ?, 1)
-        ON CONFLICT(user_id, usage_date) DO UPDATE SET
-            count = usage_daily.count + 1
-        """,
-        (user_id, today),
-    )
-    conn.execute(
-        """
-        INSERT INTO usage_monthly (user_id, usage_month, count)
-        VALUES (?, ?, 1)
-        ON CONFLICT(user_id, usage_month) DO UPDATE SET
-            count = usage_monthly.count + 1
-        """,
-        (user_id, month),
-    )
-    conn.execute(
-        """
-        UPDATE usage_users
-        SET total = COALESCE(total, 0) + 1, updated_at = ?
-        WHERE user_id = ?
-        """,
-        (now, user_id),
-    )
-
-    conn.execute(
-        """
-        DELETE FROM usage_daily
-        WHERE user_id = ?
-          AND usage_date NOT IN (
-            SELECT usage_date
-            FROM usage_daily
-            WHERE user_id = ?
-            ORDER BY usage_date DESC
-            LIMIT 14
-          )
-        """,
-        (user_id, user_id),
-    )
-    conn.commit()
-    conn.close()
-    return get_usage(user_id)
-
-
-def is_limit_reached(user_id: str = "anonymous") -> bool:
-    return not get_usage(user_id)["can_generate"]

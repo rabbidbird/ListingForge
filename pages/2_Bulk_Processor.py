@@ -1,165 +1,197 @@
-"""
-Bulk Listing Processor – upload CSV, optimize many products at once
-"""
+"""Authenticated, capped, row-isolated CSV draft workflow."""
 
-import streamlit as st
-import sys
-from pathlib import Path
+from __future__ import annotations
+
+import uuid
+
 import pandas as pd
-sys.path.insert(0, str(Path(__file__).parent.parent))
+import streamlit as st
 
-from core.generator import ListingGenerator
-from core.auth import user_id
-from core.utils import save_listing, export_to_dataframe
-from core.usage import get_usage, is_limit_reached, record_generation
+from core.auth import require_streamlit_user
+from core.config import get_settings
+from core.csv_processor import CSVValidationError, read_csv_bytes, validate_csv_rows
+from core.generation_service import GenerationInputError, generate_for_user
+from core.llm import is_llm_available
+from core.ui import (
+    configure_page,
+    confirm_before_export,
+    draft_banner,
+    render_claim_categories,
+    render_quota_notice,
+    render_sidebar,
+)
+from core.usage import UsageLimitError, assert_bulk_job_allowed, get_usage
+from core.utils import export_to_dataframe
 
-st.set_page_config(page_title="Bulk Processor | ListingForge", page_icon="📦", layout="wide")
+configure_page("Bulk Drafts", "📦")
+user = require_streamlit_user()
+render_sidebar(user)
+usage = get_usage(user.id)
+row_cap = int(usage["bulk_rows_per_job"])
 
-st.title("📦 Bulk Listing Processor")
-st.caption("Upload a CSV of products → get fully optimized titles, descriptions, tags, and scores back.")
+st.title("Bulk CSV drafts")
+st.caption(
+    "Each CSV cell is treated as a supplied fact. Empty material, audience, or feature "
+    "columns stay empty — TrueDraft will not invent them."
+)
+draft_banner()
+st.caption(
+    f"{str(usage['plan']).title()} jobs are capped at {row_cap} rows. Each successful row "
+    "uses one generation; invalid rows are reported without stopping the job."
+)
+render_quota_notice(usage)
+render_claim_categories()
+st.code(
+    "product_name,primary_keyword,category,material,audience,features,extra_keywords,platform",
+    language=None,
+)
+st.caption(
+    "Only product_name is required. Separate features with | and extra phrases with commas. "
+    f"Maximum upload: {get_settings().max_upload_bytes / 1_000_000:g} MB."
+)
 
-generator = ListingGenerator()
-active_user_id = user_id()
+sample = pd.DataFrame(
+    [
+        {
+            "product_name": "Moon Pendant",
+            "primary_keyword": "moon pendant necklace",
+            "category": "jewelry",
+            "material": "",
+            "audience": "",
+            "features": "",
+            "extra_keywords": "celestial pendant",
+            "platform": "etsy",
+        }
+    ]
+)
+st.download_button(
+    "Download safe sample CSV",
+    data=sample.to_csv(index=False).encode("utf-8"),
+    file_name="truedraft_sample.csv",
+    mime="text/csv",
+)
 
-
-def _display_limits(user_id: str):
-    usage = get_usage(user_id)
-    unlimited_daily = "unlimited" if usage["daily_limit"] is None else usage["daily_limit"]
-    unlimited_monthly = "unlimited" if usage["monthly_limit"] is None else usage["monthly_limit"]
-    remaining_daily = "unlimited" if usage["daily_remaining"] is None else usage["daily_remaining"]
-    remaining_monthly = "unlimited" if usage["monthly_remaining"] is None else usage["monthly_remaining"]
-    st.caption(
-        f"Plan: **{usage['plan_label']}** | "
-        f"Daily usage: {usage['daily']}/{unlimited_daily} • "
-        f"Monthly usage: {usage['monthly']}/{unlimited_monthly} • "
-        f"Remaining: {remaining_daily} today / {remaining_monthly} this month"
-    )
-    return usage
-
-st.markdown("### Expected CSV columns")
-st.code("product_name, primary_keyword, category, material, audience, features, extra_keywords, platform")
-st.caption("Only `product_name` is required. Other columns are optional. Features should be pipe-separated (|). Platform defaults to etsy.")
-
-# Sample download
-sample_data = pd.DataFrame([
-    {
-        "product_name": "Sterling Silver Moon Pendant Necklace",
-        "primary_keyword": "moon pendant necklace",
-        "category": "jewelry",
-        "material": "sterling silver",
-        "audience": "women",
-        "features": "Hypoallergenic|Adjustable 18-inch chain|Gift box included",
-        "extra_keywords": "celestial, boho, layering",
-        "platform": "etsy"
-    },
-    {
-        "product_name": "Minimalist Ceramic Vase Set",
-        "primary_keyword": "ceramic vase set",
-        "category": "home_decor",
-        "material": "ceramic",
-        "audience": "homeowners",
-        "features": "Set of 3|Matte finish|Waterproof",
-        "extra_keywords": "modern, nordic, shelf decor",
-        "platform": "shopify"
-    },
-])
-sample_csv = sample_data.to_csv(index=False).encode("utf-8")
-st.download_button("⬇️ Download sample CSV", data=sample_csv, file_name="listingforge_sample.csv", mime="text/csv")
-
-st.markdown("---")
-
-uploaded = st.file_uploader("Upload your product CSV", type=["csv"])
-usage = get_usage(active_user_id)
-_display_limits(active_user_id)
-
-if not usage["can_generate"]:
-    st.error("🚫 You’ve reached your listing generation limit.")
-    st.info("Upgrade from Pricing to continue.")
-    st.stop()
-
-if uploaded:
+uploaded = st.file_uploader("Upload UTF-8 CSV", type=["csv"])
+if uploaded is not None:
     try:
-        df = pd.read_csv(uploaded)
-    except Exception as e:
-        st.error(f"Could not read CSV: {e}")
-        st.stop()
+        frame = read_csv_bytes(uploaded.getvalue())
+    except CSVValidationError as exc:
+        st.error(str(exc))
+        frame = None
 
-    st.write(f"**Loaded {len(df)} rows**")
-    st.dataframe(df.head(10), use_container_width=True)
-
-    if "product_name" not in df.columns:
-        st.error("CSV must contain a `product_name` column.")
-        st.stop()
-
-    # Fill defaults
-    for col in ["primary_keyword", "category", "material", "audience", "features", "extra_keywords", "platform"]:
-        if col not in df.columns:
-            df[col] = ""
-
-    max_rows = st.slider("Process first N rows (for testing)", min_value=1, max_value=min(100, len(df)), value=min(10, len(df)))
-    if usage["remaining_total"] is not None:
-        max_rows = min(max_rows, usage["remaining_total"])
-
-    if st.button("🚀 Process Bulk Listings", type="primary"):
-        results = []
-        progress = st.progress(0)
-        status = st.empty()
-
-        subset = df.head(max_rows)
-        for idx, row in subset.iterrows():
-            if is_limit_reached(active_user_id):
-                status.text("Quota reached. Upgrade to continue.")
-                break
-
-            status.text(f"Processing {idx+1}/{len(subset)}: {row['product_name'][:50]}...")
-            features = [f.strip() for f in str(row.get("features", "")).split("|") if f.strip()]
-            extras = [k.strip() for k in str(row.get("extra_keywords", "")).split(",") if k.strip()]
-            platform = str(row.get("platform", "etsy")).lower().strip() or "etsy"
-            if platform not in ("etsy", "shopify", "amazon"):
-                platform = "etsy"
-
-            result = generator.generate_full_listing(
-                product_name=str(row["product_name"]).strip(),
-                primary_keyword=str(row.get("primary_keyword", "")).strip(),
-                category=str(row.get("category", "default")).strip() or "default",
-                material=str(row.get("material", "")).strip(),
-                audience=str(row.get("audience", "")).strip(),
-                features=features,
-                extra_keywords=extras,
-                platform=platform,
+    if frame is not None:
+        if frame.empty:
+            st.warning("The CSV has headers but no product rows.")
+        else:
+            st.write(f"Loaded {len(frame)} rows. Preview:")
+            st.dataframe(frame.head(10), use_container_width=True, hide_index=True)
+            selected_count = st.number_input(
+                "Rows to process from the top",
+                min_value=1,
+                max_value=min(len(frame), row_cap),
+                value=min(len(frame), row_cap),
+                step=1,
             )
-            usage = record_generation(active_user_id)
-            save_listing(result, user_id=active_user_id)
-            results.append(result)
-            progress.progress((idx + 1) / len(subset))
+            force_template = st.checkbox(
+                "Use deterministic template mode for this job",
+                value=True,
+                disabled=not is_llm_available(),
+            )
+            if len(frame) > row_cap:
+                st.info(
+                    f"This file has more than your per-job cap. This run can process at most {row_cap} rows."
+                )
 
-        status.text("Done!")
-        st.success(f"Successfully optimized {len(results)} listings. They have also been saved to History.")
+            if st.button(
+                "Generate CSV drafts",
+                type="primary",
+                disabled=not usage["can_generate"],
+            ):
+                validated = validate_csv_rows(frame, limit=int(selected_count))
+                try:
+                    assert_bulk_job_allowed(user.id, len(validated))
+                except UsageLimitError as exc:
+                    st.error(str(exc))
+                    if exc.code == "bulk_cap":
+                        st.page_link(
+                            "pages/5_About_Pricing.py",
+                            label="Upgrade to raise the bulk-row cap",
+                            icon="💳",
+                        )
+                else:
+                    results: list[dict] = []
+                    errors: list[dict[str, object]] = []
+                    progress = st.progress(0)
+                    status = st.empty()
+                    for index, row in enumerate(validated, start=1):
+                        if row.error or row.payload is None:
+                            errors.append({"CSV row": row.row_number, "Error": row.error})
+                        else:
+                            status.caption(f"Processing CSV row {row.row_number}...")
+                            payload = {**row.payload, "force_template": force_template}
+                            try:
+                                result, _listing_id = generate_for_user(
+                                    user.id, payload, mode="bulk"
+                                )
+                                results.append(result)
+                            except (GenerationInputError, UsageLimitError) as exc:
+                                errors.append({"CSV row": row.row_number, "Error": str(exc)})
+                            except Exception:
+                                errors.append(
+                                    {
+                                        "CSV row": row.row_number,
+                                        "Error": "Generation failed; no usage was charged.",
+                                    }
+                                )
+                        progress.progress(index / len(validated))
+                    status.empty()
+                    batch_id = uuid.uuid4().hex
+                    st.session_state["latest_bulk_drafts"] = {
+                        "user_id": str(user.id),
+                        "batch_id": batch_id,
+                        "results": results,
+                        "errors": errors,
+                    }
 
-        # Show summary table
-        summary = []
-        for r in results:
-            summary.append({
-                "Product": r["meta"]["product_name"],
-                "Best Title": r["best_title"][:80] + ("..." if len(r["best_title"]) > 80 else ""),
-                "Score": r["scores"]["overall"]["overall"],
-                "Grade": r["scores"]["overall"]["grade"],
-                "Tags": len(r["tags"]),
-            })
-        st.dataframe(pd.DataFrame(summary), use_container_width=True)
+stored = st.session_state.get("latest_bulk_drafts")
+if stored and stored.get("user_id") == str(user.id):
+    results = stored["results"]
+    errors = stored["errors"]
+    if results:
+        draft_banner()
+        st.success(f"Created {len(results)} drafts and saved them to your private history.")
+        summary = [
+            {
+                "Product": result["meta"]["product_name"],
+                "Draft title": result["best_title"],
+                "Checklist": result["scores"]["overall"]["overall"],
+                "Source": result["meta"]["source"],
+            }
+            for result in results
+        ]
+        st.dataframe(pd.DataFrame(summary), use_container_width=True, hide_index=True)
+    else:
+        st.warning("No valid drafts were created in the last job.")
+    if errors:
+        st.subheader("Rows not processed")
+        st.dataframe(pd.DataFrame(errors), use_container_width=True, hide_index=True)
 
-        # Full export
-        export_df = export_to_dataframe(results)
-        csv_data = export_df.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            "⬇️ Download Full Optimized CSV",
-            data=csv_data,
-            file_name="listingforge_bulk_optimized.csv",
-            mime="text/csv",
-            type="primary"
-        )
-
-        with st.expander("Preview first optimized description"):
-            st.text(results[0]["description"])
-else:
-    st.info("Upload a CSV to begin bulk optimization.")
+    if results:
+        st.divider()
+        confirmed = confirm_before_export(f"bulk_{stored['batch_id']}")
+        if confirmed:
+            export_frame = export_to_dataframe(results)
+            st.download_button(
+                "Download bulk CSV drafts",
+                data=export_frame.to_csv(index=False).encode("utf-8"),
+                file_name="truedraft_bulk_drafts.csv",
+                mime="text/csv",
+                type="primary",
+            )
+        else:
+            st.caption("Complete all confirmation checks to enable the bulk download.")
+elif uploaded is None:
+    st.info(
+        "Upload a CSV to validate and generate source-locked drafts. "
+        "Leave unknown attributes blank instead of guessing."
+    )

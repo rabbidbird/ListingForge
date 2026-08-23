@@ -1,231 +1,212 @@
-"""
-ListingForge SEO Scoring Engine
-Realistic scoring based on actual Etsy, Shopify, and Google ranking signals
-used by professional listing optimizers.
-"""
+"""Transparent heuristic listing checklist; never a ranking or sales predictor."""
 
-from typing import Dict, List, Tuple
+from __future__ import annotations
+
 import re
 from collections import Counter
 
+TITLE_LIMITS = {"etsy": 140, "shopify": 70, "amazon": 75}
+RESTRICTED_OR_RISKY_TERMS = {
+    "#1",
+    "best seller",
+    "bestseller",
+    "cure",
+    "free shipping",
+    "guaranteed",
+    "limited stock",
+    "medical grade",
+    "ships fast",
+    "top rated",
+}
+AMAZON_DISALLOWED_TITLE_CHARACTERS = set("!$?_{}^¬¦")
+
+
 class SEOScorer:
-    def __init__(self):
-        self.weights = {
-            "title": 0.30,
-            "description": 0.25,
-            "tags": 0.20,
-            "keywords": 0.15,
-            "readability": 0.10,
-        }
-
-    def score_title(self, title: str, primary_keyword: str, platform: str = "etsy") -> Dict:
+    @staticmethod
+    def score_title(title: str, primary_keyword: str, platform: str = "etsy") -> dict[str, object]:
         score = 0
-        feedback = []
-
+        feedback: list[str] = []
         title_lower = title.lower().strip()
         keyword_lower = primary_keyword.lower().strip() if primary_keyword else ""
-
         length = len(title)
-        if platform == "etsy":
-            if 60 <= length <= 140:
-                score += 25
-            elif 40 <= length < 60 or 140 < length <= 160:
-                score += 15
-                feedback.append("Title length is acceptable but not ideal (aim 60-140 chars for Etsy).")
-            else:
-                feedback.append("Title length is suboptimal. Etsy prefers 60-140 characters.")
+        limit = TITLE_LIMITS.get(platform, 70)
+        if 1 <= length <= limit:
+            score += 30
         else:
-            if 40 <= length <= 70:
-                score += 25
-            elif 30 <= length < 40 or 70 < length <= 90:
-                score += 15
-            else:
-                feedback.append("Title length not optimal for Shopify/Google (aim 40-70 chars).")
+            feedback.append(
+                f"Title exceeds the current {platform.title()} checklist limit ({limit})."
+            )
+
+        word_count = len(re.findall(r"\b\w+\b", title))
+        if platform == "etsy" and word_count <= 15:
+            score += 15
+        elif platform == "etsy":
+            feedback.append("Etsy currently suggests using fewer than 15 words where practical.")
+        elif 3 <= word_count <= 15:
+            score += 15
 
         if keyword_lower and keyword_lower in title_lower:
             score += 30
-            if title_lower.startswith(keyword_lower) or title_lower.find(keyword_lower) < 30:
-                score += 15
-            else:
-                feedback.append("Primary keyword is present but not near the front of the title.")
+            if title_lower.find(keyword_lower) < 30:
+                score += 10
         elif keyword_lower:
-            feedback.append("Primary keyword is missing from the title — this is critical.")
+            feedback.append("The user-selected primary phrase is absent from the title.")
+
+        words = re.findall(r"\b\w+\b", title_lower)
+        repeated = [word for word, count in Counter(words).items() if count > 2]
+        if repeated:
+            feedback.append("Repeated words may reduce clarity: " + ", ".join(repeated[:5]))
         else:
             score += 10
 
-        power_indicators = ["premium", "handmade", "custom", "unique", "best", "luxury", "organic",
-                           "personalized", "limited", "exclusive", "artisan", "gift", "handcrafted", "boutique"]
-        power_count = sum(1 for w in power_indicators if w in title_lower)
-        if power_count >= 2:
-            score += 15
-        elif power_count == 1:
-            score += 8
-        else:
-            feedback.append("Consider adding 1-2 strong power words (premium, handmade, custom, etc.).")
-
-        words = re.findall(r'\b\w+\b', title_lower)
-        if words:
-            word_counts = Counter(words)
-            max_repeat = max(word_counts.values()) if word_counts else 1
-            if max_repeat >= 3:
+        risky = [term for term in RESTRICTED_OR_RISKY_TERMS if term in title_lower]
+        if risky:
+            score -= 20
+            feedback.append(
+                "Verify or remove restricted/risky title terms: " + ", ".join(sorted(risky))
+            )
+        if platform == "amazon":
+            bad_chars = sorted(set(title) & AMAZON_DISALLOWED_TITLE_CHARACTERS)
+            if bad_chars:
                 score -= 15
-                feedback.append("Possible keyword stuffing detected. Avoid repeating the same word 3+ times.")
-            else:
-                score += 10
+                feedback.append(
+                    "Amazon title contains currently restricted characters: " + " ".join(bad_chars)
+                )
+            feedback.append(
+                "Amazon category/media exceptions can differ; verify Seller Central before publishing."
+            )
 
-        if re.search(r'[|•–—]', title):
-            score += 5
-
-        final = max(0, min(100, score))
         return {
-            "score": final,
+            "score": max(0, min(100, score)),
             "feedback": feedback,
             "length": length,
+            "limit": limit,
             "keyword_present": bool(keyword_lower and keyword_lower in title_lower),
+            "heuristic_only": True,
         }
 
-    def score_description(self, description: str, primary_keyword: str, secondary_keywords: List[str] = None) -> Dict:
+    @staticmethod
+    def score_description(
+        description: str,
+        primary_keyword: str,
+        secondary_keywords: list[str] | None = None,
+    ) -> dict[str, object]:
         score = 0
-        feedback = []
+        feedback: list[str] = []
         secondary_keywords = secondary_keywords or []
-
-        desc_lower = description.lower()
+        lower = description.lower()
         length = len(description)
-        word_count = len(re.findall(r'\b\w+\b', description))
-
-        if 400 <= length <= 1800:
+        word_count = len(re.findall(r"\b\w+\b", description))
+        if word_count >= 35:
             score += 25
-        elif 250 <= length < 400 or 1800 < length <= 2500:
-            score += 15
-            feedback.append("Description length is okay but can be optimized (target 400-1800 characters).")
         else:
-            feedback.append("Description is too short or excessively long for optimal engagement.")
+            feedback.append("Add more user-verified detail; the draft is currently brief.")
+        if "draft" in lower and ("verify" in lower or "review" in lower):
+            score += 20
+        else:
+            feedback.append("Keep the DRAFT and human-verification notice visible.")
 
-        primary = primary_keyword.lower() if primary_keyword else ""
-        if primary and primary in desc_lower:
-            count = desc_lower.count(primary)
-            if 2 <= count <= 6:
-                score += 25
-            elif count == 1:
-                score += 15
-                feedback.append("Primary keyword appears only once. Aim for 2-5 natural mentions.")
-            else:
-                score += 5
-                feedback.append("Primary keyword may be overused.")
+        primary = primary_keyword.lower().strip() if primary_keyword else ""
+        primary_count = lower.count(primary) if primary else 0
+        if 1 <= primary_count <= 5:
+            score += 25
+        elif primary_count > 5:
+            score += 10
+            feedback.append("The primary phrase may be repeated too often.")
         elif primary:
-            feedback.append("Primary keyword is missing from the description.")
+            feedback.append("The user-selected primary phrase is absent from the description.")
 
-        secondary_hits = sum(1 for kw in secondary_keywords if kw.lower() in desc_lower)
-        if secondary_keywords:
-            coverage = secondary_hits / len(secondary_keywords)
-            score += int(20 * coverage)
-            if coverage < 0.4:
-                feedback.append("Few secondary keywords are present. Weave in more related terms naturally.")
-
-        has_bullets = bool(re.search(r'[•\-\*]|^\d+\.', description, re.MULTILINE))
-        has_paragraphs = description.count('\n\n') >= 1 or description.count('\n') >= 3
-        if has_bullets:
-            score += 10
-        if has_paragraphs:
-            score += 10
-        if not has_bullets and not has_paragraphs:
-            feedback.append("Add bullet points or clear paragraph breaks for better readability.")
-
-        cta_phrases = ["add to cart", "order now", "buy now", "shop now", "get yours", "limited", "ships"]
-        if any(p in desc_lower for p in cta_phrases):
-            score += 10
+        if re.search(r"^\s*[•*-]", description, flags=re.MULTILINE):
+            score += 15
         else:
-            feedback.append("Consider adding a clear call-to-action near the end.")
+            feedback.append("Bullets can make supplied product details easier to verify.")
+        if "\n\n" in description:
+            score += 10
+        secondary_hits = sum(
+            1 for keyword in secondary_keywords if keyword and keyword.lower() in lower
+        )
+        if secondary_keywords:
+            score += round(5 * secondary_hits / len(secondary_keywords))
 
-        final = max(0, min(100, score))
+        risky = [term for term in RESTRICTED_OR_RISKY_TERMS if term in lower]
+        if risky:
+            score -= 20
+            feedback.append("Verify or remove restricted/risky claims: " + ", ".join(sorted(risky)))
         return {
-            "score": final,
+            "score": max(0, min(100, score)),
             "feedback": feedback,
             "length": length,
             "word_count": word_count,
-            "primary_keyword_count": desc_lower.count(primary) if primary else 0,
+            "primary_keyword_count": primary_count,
+            "heuristic_only": True,
         }
 
-    def score_tags(self, tags: List[str], primary_keyword: str, platform: str = "etsy") -> Dict:
+    @staticmethod
+    def score_tags(
+        tags: list[str], primary_keyword: str, platform: str = "etsy"
+    ) -> dict[str, object]:
         score = 0
-        feedback = []
-        tags = [t.strip().lower() for t in tags if t.strip()]
-
+        feedback: list[str] = []
+        tags = [tag.strip().lower() for tag in tags if tag.strip()]
         if platform == "etsy":
             if len(tags) == 13:
                 score += 30
-            elif 10 <= len(tags) <= 13:
+            elif 1 <= len(tags) < 13:
+                score += 15
+                feedback.append(
+                    "Etsy permits up to 13 tags; add only accurate, user-verified terms if available."
+                )
+            over_limit = [tag for tag in tags if len(tag) > 20]
+            if over_limit:
+                feedback.append(f"{len(over_limit)} Etsy tag(s) exceed 20 characters.")
+            else:
                 score += 20
-            else:
-                feedback.append(f"Etsy allows up to 13 tags. You have {len(tags)}. Fill all slots.")
-        else:
-            if 5 <= len(tags) <= 15:
-                score += 25
-            else:
-                feedback.append("Aim for 8-12 strong tags.")
+        elif tags:
+            score += 25
 
-        avg_length = sum(len(t) for t in tags) / max(len(tags), 1)
-        if avg_length >= 12:
-            score += 20
-        elif avg_length >= 8:
-            score += 12
-        else:
-            feedback.append("Many tags are very short. Long-tail tags (3+ words) usually convert better.")
-
-        primary = primary_keyword.lower() if primary_keyword else ""
-        if primary and any(primary in t for t in tags):
-            score += 20
+        primary = primary_keyword.lower().strip() if primary_keyword else ""
+        if primary and any(primary in tag for tag in tags):
+            score += 25
         elif primary:
-            feedback.append("Primary keyword (or close variation) should appear in at least one tag.")
-
+            feedback.append("The user-selected primary phrase is absent from tags.")
         if len(tags) == len(set(tags)):
             score += 15
         else:
-            feedback.append("Duplicate tags detected. Remove duplicates.")
-
-        over_limit = [t for t in tags if len(t) > 20]
-        if over_limit and platform == "etsy":
-            score -= 10
-            feedback.append(f"{len(over_limit)} tag(s) exceed Etsy's 20-character limit.")
-
-        final = max(0, min(100, score))
+            feedback.append("Duplicate tags detected.")
+        if all(re.fullmatch(r"[\w\s'-]+", tag, flags=re.UNICODE) for tag in tags):
+            score += 10
         return {
-            "score": final,
+            "score": max(0, min(100, score)),
             "feedback": feedback,
             "count": len(tags),
-            "avg_length": round(avg_length, 1),
+            "heuristic_only": True,
         }
 
-    def overall_score(self, title_result: Dict, desc_result: Dict, tags_result: Dict) -> Dict:
-        overall = (
-            title_result["score"] * 0.35 +
-            desc_result["score"] * 0.30 +
-            tags_result["score"] * 0.25
+    @staticmethod
+    def overall_score(
+        title_result: dict[str, object],
+        description_result: dict[str, object],
+        tags_result: dict[str, object],
+    ) -> dict[str, object]:
+        overall = round(
+            float(title_result["score"]) * 0.40
+            + float(description_result["score"]) * 0.35
+            + float(tags_result["score"]) * 0.25,
+            1,
         )
-        if title_result["score"] >= 65 and desc_result["score"] >= 70 and tags_result["score"] >= 70:
-            overall += 8
-        overall = min(100, max(0, overall))
-
-        grade = "A+" if overall >= 90 else "A" if overall >= 80 else "B+" if overall >= 70 else "B" if overall >= 60 else "C" if overall >= 50 else "D"
-
-        all_feedback = title_result["feedback"] + desc_result["feedback"] + tags_result["feedback"]
-
+        grade = "A" if overall >= 85 else "B" if overall >= 70 else "C" if overall >= 55 else "D"
+        feedback = [
+            *title_result["feedback"],
+            *description_result["feedback"],
+            *tags_result["feedback"],
+        ]
         return {
-            "overall": round(overall, 1),
+            "overall": overall,
             "grade": grade,
             "title_score": title_result["score"],
-            "description_score": desc_result["score"],
+            "description_score": description_result["score"],
             "tags_score": tags_result["score"],
-            "feedback": all_feedback,
-            "summary": self._generate_summary(overall, grade),
+            "feedback": feedback,
+            "summary": "Heuristic checklist result only; it does not predict ranking, conversion, or sales.",
+            "heuristic_only": True,
         }
-
-    def _generate_summary(self, score: float, grade: str) -> str:
-        if score >= 85:
-            return "Excellent listing. Strong SEO signals and conversion-focused copy. Ready to publish."
-        elif score >= 70:
-            return "Solid listing with good foundations. Address the feedback items to push into top-tier performance."
-        elif score >= 55:
-            return "Average listing. Significant improvements available in keyword usage, structure, and emotional language."
-        else:
-            return "Needs major work. Focus first on title keyword placement, description length/structure, and filling all tag slots."
