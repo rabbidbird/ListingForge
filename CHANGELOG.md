@@ -4,6 +4,7 @@
 
 - Replaced authentication, Stripe signature, and launch-configuration exception text at public or operator-facing boundaries with fixed safe messages.
 - Added regressions that inject secret-like exception content and prove it cannot reach auth HTML, webhook JSON, or rendered launch-check output.
+- Kept the session-secret hardening result inside readiness evaluation instead of interpolating a credential-derived diagnostic into console output.
 
 ## v1.0.7 invariant and edge hardening — 2026-08-23
 
