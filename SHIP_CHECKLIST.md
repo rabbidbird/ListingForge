@@ -5,8 +5,8 @@ origins, insecure cookies, and documented/default session secrets. The container
 image itself defaults to `ENV=production`, so a deploy that omits `ENV` fails
 closed instead of booting a local SQLite demo.
 
-Do not merge `main`'s local SQLite / guest-identity commits into this branch.
-See [docs/MERGE_STRATEGY.md](docs/MERGE_STRATEGY.md).
+The paid PostgreSQL/auth/billing path is now canonical on `main`. The retired
+SQLite / guest-identity line remains only in Git history; do not restore it.
 
 ## Operator-owned boxes
 
@@ -24,25 +24,24 @@ See [docs/MERGE_STRATEGY.md](docs/MERGE_STRATEGY.md).
 
 ## Ordered execution (do this in order)
 
-Use **test-mode Stripe first**. Do not point live Price IDs and a live key at a public domain until step 10.
+Use **test-mode Stripe first**. Do not point live Price IDs and a live key at a public domain until step 9.
 
-1. Land `agent/prepare-truedraft-v1` as `main` using the exact commands in [docs/MERGE_STRATEGY.md](docs/MERGE_STRATEGY.md). The GitHub Merge button stays blocked while the PR is dirty; that is expected. Do **not** click “Update branch”.
-2. Create the Railway project from this repo. Add Railway PostgreSQL and expose `DATABASE_URL`.
-3. Set production variables. For the first deploy, Stripe values may be **test-mode** (`rk_test_...` / `sk_test_...`, test `price_...`, test `whsec_...`). Still set `ENV=production`, a unique `SESSION_SECRET`, `SESSION_COOKIE_SECURE=true`, and a temporary `PUBLIC_BASE_URL` of the Railway HTTPS origin.
-4. Deploy. `/healthz` must return ok. If the container will not start, read the boot logs — production fail-closed refuses SQLite, documented secrets, and localhost URLs.
-5. Attach the custom domain, finish DNS/TLS, set `PUBLIC_BASE_URL=https://YOUR_DOMAIN`, redeploy.
-6. In Stripe **test** mode, add the webhook URL and Customer Portal settings from the first box. Confirm “limit customers to one subscription”.
-7. On a machine that can see the production env vars (or in a one-off Railway shell):
+1. Create the Railway project from this repo. Add Railway PostgreSQL and expose `DATABASE_URL`.
+2. Set production variables. For the first deploy, Stripe values may be **test-mode** (`rk_test_...` / `sk_test_...`, test `price_...`, test `whsec_...`). Still set `ENV=production`, a unique `SESSION_SECRET`, `SESSION_COOKIE_SECURE=true`, and a temporary `PUBLIC_BASE_URL` of the Railway HTTPS origin.
+3. Deploy. `/healthz` must return ok. If the container will not start, read the boot logs — production fail-closed refuses SQLite, documented secrets, and localhost URLs.
+4. Attach the custom domain, finish DNS/TLS, set `PUBLIC_BASE_URL=https://YOUR_DOMAIN`, redeploy.
+5. In Stripe **test** mode, add the webhook URL and Customer Portal settings from the first box. Confirm “limit customers to one subscription”.
+6. On a machine that can see the production env vars (or in a one-off Railway shell):
 
    ```bash
    ENV=production python -m scripts.launch_check
    ```
 
    Expect `public-traffic gate: blocked` while the Stripe key is test-mode and until legal placeholders are gone. Test mode is an intentional launch **blocker**, not a warning-only pass. Follow the printed `next:` line. The command must not print secrets.
-8. **Product smoke (test mode):** create an account → generate one template draft → confirm it appears only in that account’s History.
-9. **Billing smoke (test mode):** Checkout Starter or Pro → return `?checkout=success` → refresh until the plan is paid → open the Customer Portal → cancel or change payment method → confirm return `?portal=return` and that inactive statuses fall back to Free limits.
-10. Replace legal placeholders after legal review. Switch Stripe variables to **live** (`rk_live_...`, live `price_...`, live `whsec_...`). Redeploy.
-11. Re-run `ENV=production python -m scripts.launch_check`. It must print `public-traffic gate: pass` and exit `0`. A remaining test-mode key keeps the gate blocked.
-12. One live signup + one live test-clock or real $12 Checkout of your own, then accept paid public traffic.
+7. **Product smoke (test mode):** create an account → generate one template draft → confirm it appears only in that account’s History.
+8. **Billing smoke (test mode):** Checkout Starter or Pro → return `?checkout=success` → refresh until the plan is paid → open the Customer Portal → cancel or change payment method → confirm return `?portal=return` and that inactive statuses fall back to Free limits.
+9. Replace legal placeholders after legal review. Switch Stripe variables to **live** (`rk_live_...`, live `price_...`, live `whsec_...`). Redeploy.
+10. Re-run `ENV=production python -m scripts.launch_check`. It must print `public-traffic gate: pass` and exit `0`. A remaining test-mode key keeps the gate blocked.
+11. One live signup + one live test-clock or real $12 Checkout of your own, then accept paid public traffic.
 
 Do not accept paid public traffic until all four boxes are complete and launch_check passes against the live variable set.
