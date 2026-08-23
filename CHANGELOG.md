@@ -8,6 +8,7 @@
 - Built-in Streamlit dataframe export/copy controls are disabled so CSV downloads remain behind the confirmation checklist; the incompatible CORS override was removed.
 - Added the pending-Checkout Alembic migration and regression coverage for claim polarity, live-payment gates, duplicate Checkout prevention, and export configuration.
 - CI now uses the current Node 24-based official checkout/setup actions and avoids duplicate push + pull-request runs on feature branches.
+- PR #1 landed the paid PostgreSQL/auth/billing tree on `main`; the final ship checklist now contains only operator-owned launch work.
 
 ## v1.0.5 public landing and pricing story — 2026-08-19
 

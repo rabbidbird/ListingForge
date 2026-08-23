@@ -2,7 +2,7 @@
 
 Railway is the primary supported production target. Follow the 12-step runbook in the root [README](../README.md#railway-production-runbook-12-steps) and the ordered operator sequence in [SHIP_CHECKLIST.md](../SHIP_CHECKLIST.md). Those two files are the canonical source for environment variables, PostgreSQL, Stripe webhooks, the Customer Portal, custom domains, and the test-mode → live verification sequence.
 
-The four remaining launch items are operator-owned. Do not merge `main`'s local SQLite / guest-identity commits; see [MERGE_STRATEGY.md](MERGE_STRATEGY.md).
+The four remaining launch items are operator-owned. The paid PostgreSQL/auth/billing path is canonical on `main`; the earlier SQLite / guest-identity line is retired. See the completed [merge record](MERGE_STRATEGY.md).
 
 ## Container contract
 
