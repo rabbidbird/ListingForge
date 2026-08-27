@@ -140,6 +140,7 @@ def create_checkout_session(user_id: uuid.UUID, plan: str) -> str:
         attempt_id = uuid.uuid4().hex
         params: dict[str, Any] = {
             "mode": "subscription",
+            "managed_payments": {"enabled": False},
             "line_items": [{"price": price_id, "quantity": 1}],
             "success_url": f"{settings.public_base_url}/About_Pricing?checkout=success",
             "cancel_url": f"{settings.public_base_url}/About_Pricing?checkout=cancelled",
