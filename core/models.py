@@ -1,4 +1,4 @@
-"""Persistent TrueDraft domain models."""
+"""Persistent SellerDrafts domain models."""
 
 from __future__ import annotations
 

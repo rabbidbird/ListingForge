@@ -515,7 +515,7 @@ class ListingGenerator:
                 "",
                 "Verify every material, claim, and product detail against the actual item before publishing.",
                 "",
-                "— TrueDraft starting draft; human review required.",
+                "— SellerDrafts starting draft; human review required.",
             ]
         )
         return "\n".join(lines).strip()

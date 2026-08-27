@@ -1,4 +1,4 @@
-"""TrueDraft public landing page and authenticated product home."""
+"""SellerDrafts public landing page and authenticated product home."""
 
 from __future__ import annotations
 

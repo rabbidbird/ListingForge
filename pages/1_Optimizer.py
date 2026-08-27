@@ -31,7 +31,7 @@ usage = get_usage(user.id)
 
 st.title("Single listing draft")
 st.caption(
-    "Supply only facts you can verify. TrueDraft will not fill in a missing material, "
+    "Supply only facts you can verify. SellerDrafts will not fill in a missing material, "
     "certification, origin, rating, or shipping claim."
 )
 draft_banner()
@@ -126,7 +126,7 @@ if stored and stored.get("user_id") == str(user.id):
     draft_banner()
     if result["meta"].get("llm_fact_lock_fallback"):
         st.info(
-            "The LLM response failed source checks, so TrueDraft used the safe template fallback."
+            "The LLM response failed source checks, so SellerDrafts used the safe template fallback."
         )
 
     overall = result["scores"]["overall"]
@@ -177,14 +177,14 @@ if stored and stored.get("user_id") == str(user.id):
         first.download_button(
             "Download CSV draft",
             data=csv_data,
-            file_name=f"truedraft_{filename}.csv",
+            file_name=f"sellerdrafts_{filename}.csv",
             mime="text/csv",
             use_container_width=True,
         )
         second.download_button(
             "Download JSON draft",
             data=json.dumps(result, indent=2, ensure_ascii=False),
-            file_name=f"truedraft_{filename}.json",
+            file_name=f"sellerdrafts_{filename}.json",
             mime="application/json",
             use_container_width=True,
         )

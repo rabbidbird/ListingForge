@@ -32,7 +32,7 @@ row_cap = int(usage["bulk_rows_per_job"])
 st.title("Bulk CSV drafts")
 st.caption(
     "Each CSV cell is treated as a supplied fact. Empty material, audience, or feature "
-    "columns stay empty — TrueDraft will not invent them."
+    "columns stay empty — SellerDrafts will not invent them."
 )
 draft_banner()
 st.caption(
@@ -67,7 +67,7 @@ sample = pd.DataFrame(
 st.download_button(
     "Download safe sample CSV",
     data=sample.to_csv(index=False).encode("utf-8"),
-    file_name="truedraft_sample.csv",
+    file_name="sellerdrafts_sample.csv",
     mime="text/csv",
 )
 
@@ -184,7 +184,7 @@ if stored and stored.get("user_id") == str(user.id):
             st.download_button(
                 "Download bulk CSV drafts",
                 data=export_frame.to_csv(index=False).encode("utf-8"),
-                file_name="truedraft_bulk_drafts.csv",
+                file_name="sellerdrafts_bulk_drafts.csv",
                 mime="text/csv",
                 type="primary",
             )

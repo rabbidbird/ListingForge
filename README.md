@@ -1,18 +1,18 @@
-# TrueDraft
+# SellerDrafts
 
-TrueDraft is a fact-locked **draft** listing generator for Etsy, Shopify, and Amazon-style marketplaces. It creates titles, descriptions, and tags only from product facts the user supplies. Every result remains a starting draft that requires human review.
+SellerDrafts is a fact-locked **draft** listing generator for Etsy, Shopify, and Amazon-style marketplaces. It creates titles, descriptions, and tags only from product facts the user supplies. Every result remains a starting draft that requires human review.
 
-This repository was formerly named ListingForge. The product and all current user-facing copy are TrueDraft.
+The repository name remains ListingForge. The public product and all current user-facing copy use SellerDrafts.
 
 ## Release status
 
 The v1 code path includes database accounts, per-user authorization, PostgreSQL migrations, transactional quotas, Stripe subscription webhooks, abuse controls, legal pages, a public marketing home, a non-root container, CI, and automated tests. It is not a live service until the operator completes [SHIP_CHECKLIST.md](SHIP_CHECKLIST.md).
 
-The paid TrueDraft v1 path is now the canonical `main` branch. An earlier local SQLite / guest-identity demo line is retained only in Git history and must not be restored. See the completed [merge record](docs/MERGE_STRATEGY.md).
+The paid SellerDrafts v1 path is now the canonical `main` branch. An earlier local SQLite / guest-identity demo line is retained only in Git history and must not be restored. See the completed [merge record](docs/MERGE_STRATEGY.md).
 
 The logged-out home is a conversion landing page (promise, how it works, trust, plan teaser). It does not invent testimonials, user counts, or marketplace-publish claims. Signed-in users still see plan/usage metrics and draft actions.
 
-TrueDraft never promises ranking, conversion, or sales. Its scores are transparent heuristic checklists only.
+SellerDrafts never promises ranking, conversion, or sales. Its scores are transparent heuristic checklists only.
 The dated first-party sources and qualifications behind the small platform checklist are recorded in [docs/PLATFORM_RULES.md](docs/PLATFORM_RULES.md); users must verify current category rules before publishing.
 
 ## Safety invariants
@@ -72,19 +72,19 @@ On Windows, use `.venv\Scripts\python.exe` and `.venv\Scripts\pip.exe`.
 
 ## Railway production runbook (12 steps)
 
-The paid TrueDraft path is already on `main`. Use **test-mode Stripe first**.
+The paid SellerDrafts path is already on `main`. Use **test-mode Stripe first**.
 The numbered order in [SHIP_CHECKLIST.md](SHIP_CHECKLIST.md) is authoritative
 if anything here disagrees.
 
 1. Create a Railway project from the repository. Railway will use `railway.toml` and the root `Dockerfile`. Expose the app only through Railway HTTP Public Networking; do not add a TCP Proxy or another direct public route to container port 8080.
-2. Add a Railway PostgreSQL service and expose its `DATABASE_URL` to the TrueDraft service.
+2. Add a Railway PostgreSQL service and expose its `DATABASE_URL` to the SellerDrafts service.
 3. In Stripe **test** mode, create one Product per plan, each with one monthly recurring USD Price matching the displayed copy: Starter $12, Pro $29, and Agency $79. Copy the `price_...` IDs (never `prod_...`). Create the separate live Products/Prices later, at the live switch, only after the test-mode Checkout cycle passes.
 4. Create a least-privilege Stripe restricted API key for the Checkout, Customer, Subscription, and Billing Portal operations used here. Start with `rk_test_...` / `sk_test_...`. Do not put keys in Git.
 5. Set the initial production variables from `.env.example`: `ENV=production` (already the image default), `DATABASE_URL`, the Railway HTTPS origin as `PUBLIC_BASE_URL`, a 32+ character `SESSION_SECRET`, `SESSION_COOKIE_SECURE=true`, `PORT=8080`, and the **test-mode** Stripe credentials. Billing buttons stay disabled until the signing secret is added. A container started without production variables fails closed instead of serving a local SQLite demo.
 6. Deploy. Container startup runs `alembic upgrade head`; `/healthz` becomes healthy only after the migrated database is reachable.
 7. Add the Railway custom domain, point DNS as Railway instructs, then set `PUBLIC_BASE_URL=https://YOUR_DOMAIN` and redeploy.
 8. In Stripe **test** Workbench, add `https://YOUR_DOMAIN/webhooks/stripe` and subscribe at least `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `customer.subscription.created`, `customer.subscription.updated`, and `customer.subscription.deleted`. Copy its `whsec_...` value to `STRIPE_WEBHOOK_SECRET` and redeploy. Recommended extras: `invoice.payment_failed`, `invoice.paid`, `checkout.session.async_payment_failed`, `checkout.session.expired`.
-9. Enable the Stripe Customer Portal (test mode) for subscription changes, cancellation, and payment-method management. Limit customers to one subscription as defense in depth; TrueDraft also persists and reuses one open Checkout session per user.
+9. Enable the Stripe Customer Portal (test mode) for subscription changes, cancellation, and payment-method management. Limit customers to one subscription as defense in depth; SellerDrafts also persists and reuses one open Checkout session per user.
 10. Replace `{{OPERATOR_LEGAL_NAME}}`, `{{CONTACT_EMAIL}}`, and `{{JURISDICTION}}` in `pages/6_Legal.py` after legal review.
 11. Run `ENV=production python -m scripts.launch_check` against the production variable set. Follow the printed `next:` line and the printed `verify:` sequence: signup → template draft → history, then test-mode Checkout → webhook → portal. A test-mode key is an expected **blocker** during verification and can never pass the public-traffic gate. Then switch Stripe variables to **live** (`rk_live_...`, live `price_...`, live `whsec_...`), redeploy, and re-run launch_check until it prints `public-traffic gate: pass` and exits 0.
 12. Require the GitHub Actions `test` and `container-smoke` jobs on the default branch, then accept paid public traffic.
@@ -120,7 +120,7 @@ The final repository security review and residual operator checks are recorded i
 
 - Stripe signatures are verified before parsing event data.
 - Processed event IDs are stored transactionally, so retries are idempotent.
-- Checkout metadata and, when present, Checkout line-item Prices map a signed event to an immutable TrueDraft user and a configured Price. The `plan` metadata field is never trusted. Line items do not need to be expanded in the Stripe dashboard; `metadata.price_id` is a signed fallback.
+- Checkout metadata and, when present, Checkout line-item Prices map a signed event to an immutable SellerDrafts user and a configured Price. The `plan` metadata field is never trusted. Line items do not need to be expanded in the Stripe dashboard; `metadata.price_id` is a signed fallback.
 - One unexpired Checkout session is stored per user and plan. Repeated clicks reuse its URL; choosing another plan is blocked until that session completes or expires. Paid, failed, and expired Checkout events clear the pending session.
 - `checkout.session.async_payment_succeeded` is handled the same as a paid completed Checkout so delayed payment methods can still grant entitlements.
 - Subscription changes derive plan from the current Stripe Price. Unknown Prices fail closed to Free even when Stripe status is `active`.
