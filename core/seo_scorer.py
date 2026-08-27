@@ -35,7 +35,7 @@ class SEOScorer:
         else:
             if platform == "shopify":
                 feedback.append(
-                    "Title exceeds TrueDraft's 70-character Shopify SEO-title target; "
+                    "Title exceeds the SellerDrafts 70-character Shopify SEO-title target; "
                     "this is not presented as a universal product-title hard limit."
                 )
             else:

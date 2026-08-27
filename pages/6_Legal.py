@@ -12,7 +12,7 @@ render_sidebar(streamlit_current_user())
 
 st.title("Legal and trust")
 st.write(
-    "TrueDraft creates starting drafts from facts you supply. You are responsible for "
+    "SellerDrafts creates starting drafts from facts you supply. You are responsible for "
     "every claim you publish."
 )
 st.info(
@@ -26,20 +26,20 @@ with terms_tab:
         """
 ## Terms of Service
 
-**Effective date:** August 15, 2026
+**Effective date:** August 27, 2026
 
-**Operator:** Jaylen Johnson
+**Operator:** Johnson Solutions LLC, doing business as SellerDrafts
 **Contact:** jaylen.johnson0@gmail.com
 
-These Terms govern access to TrueDraft. By creating an account, you accept these Terms and the Privacy Policy. If you use TrueDraft for an organization, you confirm that you can bind that organization.
+These Terms govern access to SellerDrafts. By creating an account, you accept these Terms and the Privacy Policy. If you use SellerDrafts for an organization, you confirm that you can bind that organization.
 
 ### 1. Service and accounts
 
-TrueDraft creates starting drafts of product listing text from information a user supplies. You must provide accurate registration information, protect your credentials, and promptly report suspected account misuse. You may not share an account to evade plan limits.
+SellerDrafts creates starting drafts of product listing text from information a user supplies. You must provide accurate registration information, protect your credentials, and promptly report suspected account misuse. You may not share an account to evade plan limits.
 
 ### 2. Draft output and user responsibility
 
-Every title, description, tag, and export is a **DRAFT — verify before publishing**. You are solely responsible for checking product facts, materials, dimensions, ratings, certifications, origin, intellectual-property rights, shipping statements, prices, marketplace eligibility, and all other claims before publication. TrueDraft does not publish to marketplaces for you.
+Every title, description, tag, and export is a **DRAFT — verify before publishing**. You are solely responsible for checking product facts, materials, dimensions, ratings, certifications, origin, intellectual-property rights, shipping statements, prices, marketplace eligibility, and all other claims before publication. SellerDrafts does not publish to marketplaces for you.
 
 ### 3. Heuristic checklists
 
@@ -55,7 +55,7 @@ Plan quotas are enforced per account. Paid subscriptions are processed by Stripe
 
 ### 6. Your content and license
 
-You retain rights in information you submit and resulting drafts to the extent allowed by law. You grant Jaylen Johnson a limited license to host, process, transmit, and back up that content only as needed to operate, secure, and support TrueDraft.
+You retain rights in information you submit and resulting drafts to the extent allowed by law. You grant Johnson Solutions LLC, doing business as SellerDrafts, a limited license to host, process, transmit, and back up that content only as needed to operate, secure, and support SellerDrafts.
 
 ### 7. Prohibited conduct
 
@@ -67,7 +67,7 @@ We may change or discontinue features and limits with reasonable notice where pr
 
 ### 9. Disclaimers and liability
 
-To the maximum extent permitted by law, TrueDraft is provided without implied warranties. Jaylen Johnson is not responsible for marketplace rejection, account action, inaccurate user input, content you publish, lost profits, or indirect or consequential loss. Any aggregate liability is limited to the amount you paid for TrueDraft during the three months before the event giving rise to the claim, unless applicable law requires a different result.
+To the maximum extent permitted by law, SellerDrafts is provided without implied warranties. Johnson Solutions LLC is not responsible for marketplace rejection, account action, inaccurate user input, content you publish, lost profits, or indirect or consequential loss. Any aggregate liability is limited to the amount you paid for SellerDrafts during the three months before the event giving rise to the claim, unless applicable law requires a different result.
 
 ### 10. Governing law and disputes
 
@@ -84,9 +84,9 @@ with privacy_tab:
         """
 ## Privacy Policy
 
-**Effective date:** August 15, 2026
+**Effective date:** August 27, 2026
 
-**Data controller/operator:** Jaylen Johnson
+**Data controller/operator:** Johnson Solutions LLC, doing business as SellerDrafts
 **Privacy contact:** jaylen.johnson0@gmail.com
 
 ### 1. Information collected
@@ -94,7 +94,7 @@ with privacy_tab:
 - Account data: email address, name, password hash, Terms acceptance, verification status, and session records.
 - Product content: facts, keywords, CSV inputs, generated drafts, and checklist results.
 - Usage and security data: generation events, plan enforcement records, approximate request source such as IP address on authentication routes, timestamps, and operational logs.
-- Billing metadata: Stripe customer, subscription, Price, and status identifiers. TrueDraft does not store full payment-card numbers.
+- Billing metadata: Stripe customer, subscription, Price, and status identifiers. SellerDrafts does not store full payment-card numbers.
 
 ### 2. Why information is used
 
@@ -110,7 +110,7 @@ Providers receive only information reasonably needed for their role. Data may be
 
 ### 4. Cookies
 
-TrueDraft uses an essential, HttpOnly session cookie to keep users signed in and a short-lived anti-forgery cookie on authentication forms. These are required for account security; no advertising cookie is included in v1.
+SellerDrafts uses an essential, HttpOnly session cookie to keep users signed in and a short-lived anti-forgery cookie on authentication forms. These are required for account security; no advertising cookie is included in v1.
 
 ### 5. Retention
 
@@ -126,11 +126,11 @@ Depending on your location, you may have rights to access, correct, export, dele
 
 ### 8. Children
 
-TrueDraft is not directed to children under 13, or a higher minimum age required by local law. Do not create an account if you cannot legally consent to these terms.
+SellerDrafts is not directed to children under 13, or a higher minimum age required by local law. Do not create an account if you cannot legally consent to these terms.
 
 ### 9. Changes and contact
 
-Material changes will be posted with a revised effective date. Contact Jaylen Johnson at jaylen.johnson0@gmail.com. The operator is established in Ohio, United States.
+Material changes will be posted with a revised effective date. Contact Johnson Solutions LLC at jaylen.johnson0@gmail.com. The operator is established in Ohio, United States.
 """
     )
 
@@ -139,9 +139,9 @@ with use_tab:
         """
 ## Acceptable Use Policy
 
-**Effective date:** August 15, 2026
+**Effective date:** August 27, 2026
 
-You may not use TrueDraft to:
+You may not use SellerDrafts to:
 
 - create or publish a claim you know is false, deceptive, unverified, or likely to mislead a buyer;
 - invent ratings, reviews, sales status, scarcity, certifications, origin, health claims, materials, shipping promises, or intellectual-property ownership;
@@ -153,7 +153,7 @@ You may not use TrueDraft to:
 - probe, scrape, overload, reverse engineer, disrupt, or introduce malicious code into the service;
 - use output as evidence of marketplace compliance, ranking likelihood, guaranteed sales, or professional legal/regulatory advice.
 
-Jaylen Johnson may investigate suspected violations and suspend access where reasonably necessary to protect users, providers, or the service. Report abuse to jaylen.johnson0@gmail.com. Enforcement is subject to applicable law in Ohio, United States.
+Johnson Solutions LLC may investigate suspected violations and suspend access where reasonably necessary to protect users, providers, or the service. Report abuse to jaylen.johnson0@gmail.com. Enforcement is subject to applicable law in Ohio, United States.
 """
     )
 

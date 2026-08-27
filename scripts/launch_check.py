@@ -105,8 +105,8 @@ NEXT_ACTION_HINTS = (
     ),
 )
 VERIFY_SEQUENCE = (
-    "1. signup → template draft → private history",
-    "2. test-mode Checkout → webhook applies plan → portal cancel/return",
+    "1. signup -> template draft -> private history",
+    "2. test-mode Checkout -> webhook applies plan -> portal cancel/return",
     "3. switch Stripe variables to live",
     "4. re-run this command until public-traffic gate: pass",
 )
@@ -379,7 +379,7 @@ def launch_report() -> dict[str, Any]:
 
 def render_report(report: dict[str, Any]) -> str:
     lines = [
-        "TrueDraft launch check",
+        "SellerDrafts launch check",
         f"  environment: {report['environment']}",
         f"  production: {report['production']}",
         f"  stripe fully configured: {report['stripe_fully_configured']}",

@@ -14,10 +14,10 @@ def main() -> None:
     assert result["meta"]["is_draft"] is True
     assert result["meta"]["claim_warnings"] == []
     assert "DRAFT" in result["disclaimer"]
-    assert app.title == "TrueDraft edge"
+    assert app.title == "SellerDrafts edge"
     assert {"users", "listings", "usage_events", "subscriptions"}.issubset(Base.metadata.tables)
     assert healthz() == {"status": "ok"}
-    print("TrueDraft smoke check passed")
+    print("SellerDrafts smoke check passed")
 
 
 if __name__ == "__main__":

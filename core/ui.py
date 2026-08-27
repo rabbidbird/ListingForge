@@ -161,7 +161,7 @@ def render_positioning() -> None:
 
 
 def render_claim_categories(*, expanded: bool = False) -> None:
-    st.markdown("### What TrueDraft will not invent")
+    st.markdown("### What SellerDrafts will not invent")
     with st.expander("See blocked claim categories", expanded=expanded):
         st.markdown(
             "These claims appear only when you type them. Leaving a field blank does not "

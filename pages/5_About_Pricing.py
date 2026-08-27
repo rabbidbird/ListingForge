@@ -33,7 +33,7 @@ st.title("Plans and pricing")
 st.write(PROMISE)
 st.write(
     "All plans use the same fact-locked generator. Paid plans raise documented quotas; "
-    "none are marketed as unlimited. TrueDraft does not publish listings or promise ranking."
+    "none are marketed as unlimited. SellerDrafts does not publish listings or promise ranking."
 )
 draft_banner()
 
@@ -172,6 +172,6 @@ st.markdown(
 heuristic_notice()
 st.caption(
     "Tax and refund obligations depend on the operator's registrations and jurisdiction; "
-    "TrueDraft does not claim Stripe Tax is enabled automatically."
+    "SellerDrafts does not claim Stripe Tax is enabled automatically."
 )
 render_public_footer()

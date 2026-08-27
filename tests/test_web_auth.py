@@ -32,7 +32,7 @@ def test_public_signup_sets_httponly_session_cookie():
         assert page.status_code == 200
         assert "Fact-locked drafts from facts you supply" in page.text
         assert "does not publish to marketplaces" in page.text
-        assert "TrueDraft" in page.text
+        assert "SellerDrafts" in page.text
         response = client.post(
             "/auth/signup",
             data={

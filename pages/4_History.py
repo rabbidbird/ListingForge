@@ -104,7 +104,7 @@ if confirmed and full_results:
     st.download_button(
         "Download shown history as CSV",
         data=export_frame.to_csv(index=False).encode("utf-8"),
-        file_name="truedraft_history.csv",
+        file_name="sellerdrafts_history.csv",
         mime="text/csv",
     )
 elif not confirmed:

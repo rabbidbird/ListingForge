@@ -113,7 +113,7 @@ def main() -> None:
             client.get("/auth/login").status_code == 200, "Session remained active after logout."
         )
 
-    print("TrueDraft container edge smoke passed")
+    print("SellerDrafts container edge smoke passed")
 
 
 if __name__ == "__main__":

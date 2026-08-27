@@ -8,16 +8,15 @@ from __future__ import annotations
 
 from .plans import PLANS
 
-PRODUCT_NAME = "TrueDraft"
-FORMER_NAME = "ListingForge"
+PRODUCT_NAME = "SellerDrafts"
 TAGLINE = "Fact-locked product listing drafts from facts you supply"
 PROMISE = (
-    "TrueDraft writes titles, descriptions, and tags using only the product facts you enter. "
+    "SellerDrafts writes titles, descriptions, and tags using only the product facts you enter. "
     "Missing attributes stay missing."
 )
 HERO_SUPPORT = (
     "Create starting drafts for Etsy, Shopify, and Amazon-style marketplaces. "
-    "You review every claim, then export. TrueDraft does not publish listings for you "
+    "You review every claim, then export. SellerDrafts does not publish listings for you "
     "and does not promise ranking, conversion, or sales."
 )
 DRAFT_BANNER = (
@@ -33,18 +32,17 @@ EXPORT_REMINDER = (
 )
 COPY_SUCCESS = "Copied — still a draft"
 AUTH_PROMISE = (
-    "Fact-locked drafts from facts you supply. TrueDraft does not publish to "
+    "Fact-locked drafts from facts you supply. SellerDrafts does not publish to "
     "marketplaces or promise ranking."
 )
 FOOTER_CAPTION = (
-    "TrueDraft v1 · Output is always a starting draft · "
-    "Formerly named ListingForge · See Legal for Terms and Privacy"
+    "SellerDrafts v1 · Output is always a starting draft · See Legal for Terms and Privacy"
 )
 
 POSITIONING = (
     (
         "Not an autopublisher",
-        "You export a draft and publish it yourself. TrueDraft never sends listings "
+        "You export a draft and publish it yourself. SellerDrafts never sends listings "
         "to Etsy, Shopify, or Amazon.",
     ),
     (
@@ -67,7 +65,7 @@ HOW_IT_WORKS = (
     ),
     (
         "2. Generate a draft",
-        "TrueDraft rearranges supplied wording into titles, a description, and tags. "
+        "SellerDrafts rearranges supplied wording into titles, a description, and tags. "
         "It will not invent a metal, certification, origin, or shipping claim.",
     ),
     (
@@ -123,7 +121,7 @@ TRUST_POINTS = (
     ),
     (
         "Review stays mandatory",
-        "Exports remain behind a confirmation checklist. TrueDraft does not publish "
+        "Exports remain behind a confirmation checklist. SellerDrafts does not publish "
         "to a marketplace for you.",
     ),
     (

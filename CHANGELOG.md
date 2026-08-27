@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.9 SellerDrafts brand and operator update — 2026-08-27
+
+- Changed public product naming from the previous brand to SellerDrafts while retaining ListingForge as the repository name.
+- Updated the legal operator to Johnson Solutions LLC, doing business as SellerDrafts, and refreshed the policy effective dates.
+- Kept legacy environment-variable names only where required for backward-compatible production safety checks.
+
 ## v1.0.8 CodeQL response hardening — 2026-08-23
 
 - Replaced authentication, Stripe signature, and launch-configuration exception text at public or operator-facing boundaries with fixed safe messages.
@@ -34,7 +40,7 @@
 
 - Logged-out Home is a conversion landing page: hero, honest positioning, how-it-works, feature grid, trust, blocked-claim categories, and a plan teaser. Logged-in Home still shows plan metrics and draft/CSV actions.
 - Plans & Pricing now includes a comparison table, honest plan blurbs, and billing FAQ. Checkout, portal, and fail-closed entitlement rules are unchanged.
-- Shared `core/copy.py` keeps TrueDraft naming, draft/heuristic disclaimers, and forbidden marketing phrases consistent. Signup/sign-in pages repeat the same promise.
+- Shared `core/copy.py` keeps SellerDrafts naming, draft/heuristic disclaimers, and forbidden marketing phrases consistent. Signup/sign-in pages repeat the same promise.
 - Optimizer, bulk, checklist, history, and export confirmations make the no-invention and human-review rules visible.
 
 ## v1.0.4 land-as-main commands — 2026-08-19
@@ -76,6 +82,6 @@
 - Implemented Stripe-hosted subscription Checkout, Customer Portal, signature verification, Price-based entitlements, idempotency, deletion downgrade, and out-of-order event protection.
 - Hardened fact-locking, expanded prohibited claims, removed unsafe claim suggestion banks, and made unsourced LLM vocabulary or numbers fail closed to deterministic templates.
 - Added CSV upload ceilings, empty-file handling, `nan` cleanup, and row-isolated validation failures.
-- Reworked all UI copy around TrueDraft, mandatory draft review, real clipboard controls, honest heuristic checklists, and confirmation-before-export.
+- Reworked all UI copy around SellerDrafts, mandatory draft review, real clipboard controls, honest heuristic checklists, and confirmation-before-export.
 - Expanded Terms, Privacy, and Acceptable Use with launch-blocking operator placeholders and LLM-provider disclosure.
 - Added a fully pinned dependency lock, non-root nginx/FastAPI/Streamlit container, PostgreSQL Compose smoke path, Railway config, GitHub Actions CI, and release documentation.

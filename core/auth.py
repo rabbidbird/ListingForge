@@ -193,7 +193,7 @@ def require_streamlit_user() -> User:
 
     user = streamlit_current_user()
     if user is None:
-        st.warning("Sign in to use TrueDraft.")
+        st.warning("Sign in to use SellerDrafts.")
         st.markdown("[Sign in](/auth/login) · [Create an account](/auth/signup)")
         st.stop()
     return user

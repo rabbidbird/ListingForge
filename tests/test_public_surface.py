@@ -80,7 +80,7 @@ def test_copy_module_contains_no_false_claims():
         *PLAN_BLURBS.values(),
     )
     assert forbidden_claims_in(blob) == []
-    assert PRODUCT_NAME == "TrueDraft"
+    assert PRODUCT_NAME == "SellerDrafts"
 
 
 def test_plan_limit_lines_match_enforced_metadata():
@@ -104,7 +104,7 @@ def test_public_home_converts_a_cold_visitor():
     assert "How it works" in text
     assert "Supply facts" in text
     assert "No silent product facts" in text
-    assert "What TrueDraft will not invent" in text
+    assert "What SellerDrafts will not invent" in text
     assert "Starter" in text
     assert forbidden_claims_in(text) == []
     labels = [getattr(item, "label", "") for item in getattr(app, "link_button", [])]
@@ -149,7 +149,7 @@ def test_legal_operator_details_are_complete(monkeypatch):
     app = AppTest.from_file("pages/6_Legal.py").run(timeout=15)
     assert not app.exception
     text = _visible_text(app)
-    assert "Jaylen Johnson" in text
+    assert "Johnson Solutions LLC, doing business as SellerDrafts" in text
     assert "jaylen.johnson0@gmail.com" in text
     assert "Ohio, United States" in text
     assert "starting drafts" in text.lower() or "starting draft" in text.lower()
@@ -163,7 +163,7 @@ def test_optimizer_shows_blocked_claim_categories(monkeypatch, user_factory):
     app = AppTest.from_file("pages/1_Optimizer.py").run(timeout=15)
     assert not app.exception
     text = _visible_text(app)
-    assert "will not invent" in text.lower() or "What TrueDraft will not invent" in text
+    assert "will not invent" in text.lower() or "What SellerDrafts will not invent" in text
     assert "nickel-free" in text
     assert "leaving a field blank" in text.lower()
     assert DRAFT_BANNER in text

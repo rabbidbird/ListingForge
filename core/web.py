@@ -30,7 +30,7 @@ from .models import User
 
 settings = get_settings()
 settings.validate_for_production()
-app = FastAPI(title="TrueDraft edge", docs_url=None, redoc_url=None, openapi_url=None)
+app = FastAPI(title="SellerDrafts edge", docs_url=None, redoc_url=None, openapi_url=None)
 
 
 def _trusted_hosts() -> list[str]:
@@ -90,14 +90,14 @@ async def security_and_soft_limit(request: Request, call_next):
 def _page(title: str, body: str) -> str:
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{html.escape(title)} | TrueDraft</title>
+<title>{html.escape(title)} | SellerDrafts</title>
 <style>
 body{{margin:0;background:#0f172a;color:#f1f5f9;font-family:system-ui,sans-serif}}
 main{{max-width:440px;margin:7vh auto;padding:2rem;background:#1e293b;border:1px solid #334155;border-radius:14px}}
 h1{{margin-top:0}}label{{display:block;margin:.9rem 0 .35rem}}input[type=text],input[type=email],input[type=password]{{box-sizing:border-box;width:100%;padding:.75rem;border:1px solid #64748b;border-radius:8px;background:#0f172a;color:#fff}}
 button{{width:100%;margin-top:1.2rem;padding:.8rem;border:0;border-radius:8px;background:#818cf8;color:#0f172a;font-weight:700;cursor:pointer}}
 a{{color:#a5b4fc}}.error{{padding:.75rem;background:#7f1d1d;border-radius:8px}}.note{{color:#cbd5e1;font-size:.9rem}}.check{{display:flex;gap:.6rem;align-items:flex-start;margin-top:1rem}}.check label{{margin:0}}
-</style></head><body><main><p><a href="/">← TrueDraft</a></p>{body}</main></body></html>"""
+</style></head><body><main><p><a href="/">← SellerDrafts</a></p>{body}</main></body></html>"""
 
 
 def _csrf_response(title: str, body_template: str, *, status_code: int = 200) -> HTMLResponse:
@@ -145,7 +145,7 @@ def _current_request_user(request: Request) -> User | None:
 
 LOGIN_FORM = """
 <h1>Sign in</h1>
-<p class="note">Fact-locked drafts from facts you supply. TrueDraft does not publish to marketplaces or promise ranking.</p>
+<p class="note">Fact-locked drafts from facts you supply. SellerDrafts does not publish to marketplaces or promise ranking.</p>
 {error}
 <form method="post" action="/auth/login">
 <input type="hidden" name="csrf_token" value="{{CSRF}}">
@@ -158,7 +158,7 @@ LOGIN_FORM = """
 
 SIGNUP_FORM = """
 <h1>Create your account</h1>
-<p class="note">Fact-locked drafts from facts you supply. TrueDraft does not publish to marketplaces or promise ranking.</p>
+<p class="note">Fact-locked drafts from facts you supply. SellerDrafts does not publish to marketplaces or promise ranking.</p>
 {error}
 <form method="post" action="/auth/signup">
 <input type="hidden" name="csrf_token" value="{{CSRF}}">

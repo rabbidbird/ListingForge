@@ -3,7 +3,7 @@
 ## Supported version
 
 Security fixes are applied to the current `main` branch. No older release line
-is supported before the first public TrueDraft release.
+is supported before the first public SellerDrafts release.
 
 ## Report a vulnerability privately
 
@@ -17,4 +17,4 @@ impact, and a minimal safe proof where possible. The operator will coordinate
 validation and remediation through the private advisory before disclosure.
 
 For ordinary product or legal contact, use the operator address published in
-the deployed TrueDraft Legal page after its launch placeholders are replaced.
+the deployed SellerDrafts Legal page after its launch placeholders are replaced.

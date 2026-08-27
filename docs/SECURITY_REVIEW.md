@@ -1,4 +1,4 @@
-# TrueDraft v1 security review
+# SellerDrafts v1 security review
 
 Review date: 2026-08-23  
 Scope: the public `main` application, authentication edge, persistence, Stripe
@@ -87,7 +87,7 @@ using `SHIP_CHECKLIST.md`.
   current SDK object. A real HMAC-signed SDK event now passes in unit and
   container-edge tests.
 - **Impact before fix:** valid live webhooks would return 400 after payment, so a
-  customer could be charged while TrueDraft retained Free entitlements.
+  customer could be charged while SellerDrafts retained Free entitlements.
 - **Fix:** use the current public `to_dict()` conversion with a legacy fallback.
 - **Mitigation:** the container smoke sends the same raw signed bytes through
   nginx twice and requires first-delivery processing plus retry idempotency.

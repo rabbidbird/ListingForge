@@ -1,6 +1,6 @@
-# Historical merge record: paid TrueDraft vs retired local demo
+# Historical merge record: paid SellerDrafts vs retired local demo
 
-Status: completed on 2026-08-23. PR #1 landed the paid TrueDraft v1 tree on
+Status: completed on 2026-08-23. PR #1 landed the paid SellerDrafts v1 tree on
 `main` in merge commit `df1aef80743d20b42ce53581034056394158476d`.
 
 The repository had diverged after merge-base `99198bc`:
