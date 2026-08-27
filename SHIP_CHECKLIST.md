@@ -15,8 +15,8 @@ SQLite / guest-identity line remains only in Git history; do not restore it.
 - [x] **Domain:** `sellerdrafts.com` is attached to Railway port 8080 through HTTP Public Networking, with Cloudflare DNS-only records and valid TLS. `PUBLIC_BASE_URL` is `https://sellerdrafts.com`. Verified URLs:
   - `https://sellerdrafts.com/healthz`
   - `https://sellerdrafts.com/webhooks/stripe`
-  - `https://sellerdrafts.com/About_Pricing?checkout=success`
-  - `https://sellerdrafts.com/About_Pricing?portal=return`
+  - `https://sellerdrafts.com/app/About_Pricing?checkout=success`
+  - `https://sellerdrafts.com/app/About_Pricing?portal=return`
 - [ ] **Legal review:** `pages/6_Legal.py` identifies Johnson Solutions LLC, doing business as SellerDrafts, with the operator-supplied contact email and jurisdiction (Ohio, United States), and contains no template placeholders. Have those terms reviewed for the business before paid public traffic. MIT `LICENSE` is not a substitute for the Terms.
 - [ ] **First genuine customer lifecycle:** hourly read-only monitoring is active for the first genuine $12 Starter Checkout, successful webhook delivery, entitlement update, portal access, and customer-initiated cancellation/fallback. The live baseline contained no completed Checkout Sessions; do not manufacture one.
 

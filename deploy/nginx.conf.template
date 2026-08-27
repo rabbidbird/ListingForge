@@ -86,7 +86,11 @@ http {
             proxy_set_header X-Forwarded-Proto $truedraft_client_proto;
         }
 
-        location / {
+        location = /app {
+            return 308 /app/;
+        }
+
+        location ^~ /app/ {
             proxy_pass http://127.0.0.1:8501;
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
@@ -97,6 +101,14 @@ http {
             proxy_set_header X-Forwarded-Proto $truedraft_client_proto;
             proxy_read_timeout 86400;
             proxy_buffering off;
+            add_header X-Robots-Tag "noindex, nofollow" always;
+        }
+
+        location / {
+            proxy_pass http://127.0.0.1:8000;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $truedraft_client_ip;
+            proxy_set_header X-Forwarded-Proto $truedraft_client_proto;
         }
     }
 }

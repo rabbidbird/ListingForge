@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from core.auth import AuthError, get_user_by_session_token
 from core.billing import WebhookVerificationError
 from core.config import reset_settings_cache
+from core.copy import forbidden_claims_in
 from core.database import session_scope
 from core.models import User
 
@@ -51,6 +52,107 @@ def test_public_signup_sets_httponly_session_cookie():
         assert client.get("/auth/login", follow_redirects=False).status_code == 303
     with session_scope() as session:
         assert session.query(User).filter_by(email="web@example.com").one().terms_accepted_at
+
+
+def test_public_marketing_routes_are_server_rendered_and_indexable():
+    web = _reload_web()
+    with TestClient(web.app) as client:
+        home = client.get("/")
+        assert home.status_code == 200
+        assert "<title>SellerDrafts</title>" in home.text
+        assert '<link rel="canonical" href="http://localhost:8080/">' in home.text
+        assert 'type="application/ld+json"' in home.text
+        assert "Etsy listing drafts that stay inside the facts" in home.text
+        assert "DRAFT — verify before publishing" in home.text
+        assert "Streamlit" not in home.text
+        assert forbidden_claims_in(home.text) == []
+
+        for path in (
+            "/pricing",
+            "/legal",
+            "/guides/etsy-listing-draft-checklist",
+            "/guides/write-etsy-listings-without-inventing-facts",
+            "/guides/etsy-title-description-and-tags-checklist",
+        ):
+            page = client.get(path)
+            assert page.status_code == 200
+            assert '<link rel="canonical"' in page.text
+            assert "SellerDrafts" in page.text
+            assert forbidden_claims_in(page.text) == []
+
+
+def test_robots_and_sitemap_expose_only_public_canonical_routes():
+    web = _reload_web()
+    with TestClient(web.app) as client:
+        robots = client.get("/robots.txt")
+        assert robots.status_code == 200
+        assert robots.headers["content-type"].startswith("text/plain")
+        assert "User-agent: OAI-SearchBot" in robots.text
+        assert "User-agent: GPTBot\nDisallow: /" in robots.text
+        assert "Disallow: /app/" in robots.text
+        assert "Sitemap: http://localhost:8080/sitemap.xml" in robots.text
+
+        sitemap = client.get("/sitemap.xml")
+        assert sitemap.status_code == 200
+        assert sitemap.headers["content-type"].startswith("application/xml")
+        assert "http://localhost:8080/pricing" in sitemap.text
+        assert "/guides/etsy-listing-draft-checklist" in sitemap.text
+        assert "/auth/" not in sitemap.text
+        assert "/app/" not in sitemap.text
+
+
+def test_tagged_signup_persists_signed_first_touch_attribution():
+    web = _reload_web()
+    with TestClient(web.app) as client:
+        landing = client.get(
+            "/?utm_source=x&utm_medium=paid-social&utm_campaign=launch&utm_content=truth-demo"
+        )
+        assert "sellerdrafts_attribution" in landing.headers["set-cookie"]
+        assert "HttpOnly" in landing.headers["set-cookie"]
+        signup_page = client.get("/auth/signup")
+        response = client.post(
+            "/auth/signup",
+            data={
+                "csrf_token": _csrf(signup_page.text),
+                "name": "Campaign User",
+                "email": "campaign@example.com",
+                "password": "correct horse battery staple",
+                "accepted_terms": "true",
+            },
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+
+    with session_scope() as session:
+        user = session.query(User).filter_by(email="campaign@example.com").one()
+        assert user.acquisition_source == "x"
+        assert user.acquisition_medium == "paid-social"
+        assert user.acquisition_campaign == "launch"
+        assert user.acquisition_content == "truth-demo"
+        assert user.acquisition_landing_path == "/"
+
+
+def test_tampered_attribution_cookie_is_ignored():
+    web = _reload_web()
+    with TestClient(web.app) as client:
+        client.cookies.set("sellerdrafts_attribution", "forged")
+        signup_page = client.get("/auth/signup")
+        response = client.post(
+            "/auth/signup",
+            data={
+                "csrf_token": _csrf(signup_page.text),
+                "name": "Unattributed User",
+                "email": "unattributed@example.com",
+                "password": "correct horse battery staple",
+                "accepted_terms": "true",
+            },
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+
+    with session_scope() as session:
+        user = session.query(User).filter_by(email="unattributed@example.com").one()
+        assert user.acquisition_source is None
 
 
 def test_password_login_still_sets_session_cookie(user_factory):

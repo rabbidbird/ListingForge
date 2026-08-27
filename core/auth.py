@@ -7,6 +7,7 @@ import hmac
 import secrets
 import uuid
 from datetime import UTC, timedelta
+from typing import Any
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
@@ -71,6 +72,7 @@ def register_user(
     password: str,
     name: str,
     accepted_terms: bool,
+    attribution: dict[str, Any] | None = None,
 ) -> User:
     if not accepted_terms:
         raise AuthError("You must accept the Terms of Service and Privacy Policy.")
@@ -87,6 +89,7 @@ def register_user(
         email_verified_at=None if get_settings().email_verification_required else now,
         terms_accepted_at=now,
         terms_version=TERMS_VERSION,
+        **(attribution or {}),
     )
     session.add(user)
     try:
@@ -105,6 +108,7 @@ def get_or_create_google_user(
     subject: str,
     email: str,
     name: str,
+    attribution: dict[str, Any] | None = None,
 ) -> User:
     """Link a verified Google identity by subject, falling back to normalized email."""
     clean_subject = subject.strip()
@@ -147,6 +151,7 @@ def get_or_create_google_user(
         email_verified_at=now,
         terms_accepted_at=now,
         terms_version=TERMS_VERSION,
+        **(attribution or {}),
     )
     session.add(user)
     try:

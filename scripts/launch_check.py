@@ -353,9 +353,9 @@ def launch_report() -> dict[str, Any]:
         and not placeholder_prices
         and not non_price_ids,
         "webhook_url": f"{settings.public_base_url}/webhooks/stripe",
-        "checkout_success_url": f"{settings.public_base_url}/About_Pricing?checkout=success",
-        "checkout_cancel_url": f"{settings.public_base_url}/About_Pricing?checkout=cancelled",
-        "portal_return_url": f"{settings.public_base_url}/About_Pricing?portal=return",
+        "checkout_success_url": f"{settings.public_base_url}/app/About_Pricing?checkout=success",
+        "checkout_cancel_url": f"{settings.public_base_url}/app/About_Pricing?checkout=cancelled",
+        "portal_return_url": f"{settings.public_base_url}/app/About_Pricing?portal=return",
         "llm_enabled": settings.llm_enabled,
         "email_verification_required": settings.email_verification_required,
         "legacy_main_vars": legacy,

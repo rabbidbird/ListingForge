@@ -4,6 +4,7 @@ gatherUsageStats = false
 [server]
 headless = true
 enableXsrfProtection = true
+baseUrlPath = "app"
 
 [client]
 toolbarMode = "viewer"

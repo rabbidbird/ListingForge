@@ -39,15 +39,27 @@ No plan is unlimited.
 
 ## Architecture
 
-- Streamlit provides the product UI.
-- FastAPI owns signup/login/logout, HttpOnly session cookies, health checks, and Stripe webhooks.
+- Streamlit provides the authenticated product UI under `/app/`.
+- FastAPI owns crawlable public pages, signup/login/logout, HttpOnly session cookies, health checks, and Stripe webhooks.
 - nginx exposes both processes on one origin and proxies Streamlit WebSockets.
 - SQLAlchemy and Alembic manage PostgreSQL. SQLite is allowed only with `ENV=development` or `ENV=test`.
 - Stripe-hosted Checkout and Customer Portal handle payment UI; verified, idempotent webhooks control entitlements.
 
 nginx applies per-client request/connection limits using Railway's injected client IP plus a generous container-wide backstop on every public route. Authentication also has a tighter bounded per-source soft limit in FastAPI; add a shared edge/WAF limiter before horizontal scaling.
 
-Minimum tables are `users`, `listings`, `usage_events`, and `subscriptions`; v1 also uses `user_sessions` and `webhook_events`.
+Minimum tables are `users`, `listings`, `usage_events`, and `subscriptions`; v1 also uses `user_sessions` and `webhook_events`. Optional first-touch UTM labels are stored on a newly created user and never overwrite an existing account.
+
+## Search discovery and campaign measurement
+
+FastAPI server-renders the public home, pricing, legal page, and three Etsy seller guides. `/robots.txt` allows public search crawlers and OAI-SearchBot while excluding the authenticated workspace; `/sitemap.xml` lists canonical public URLs only. Private Streamlit and authentication routes send or receive `noindex` directives. SellerDrafts does not use `llms.txt` or claim that indexing, ranking, or AI citation is guaranteed.
+
+Submit `https://sellerdrafts.com/sitemap.xml` to Google Search Console and Bing Webmaster Tools after verifying the domain. Use each service's URL inspection tool to confirm the public HTML, canonical, and sitemap status.
+
+Campaign links may include `utm_source`, `utm_medium`, `utm_campaign`, `utm_content`, and `utm_term`. A signed first-party cookie retains those labels for up to 30 days and attaches them only when a new account is created. It is not a TikTok or X advertising pixel. Aggregate outcomes can be inspected without account identifiers:
+
+```bash
+python -m scripts.acquisition_report --since 2026-08-27
+```
 
 ## Local production-like run
 
@@ -85,7 +97,7 @@ if anything here disagrees.
 7. Add the Railway custom domain, point DNS as Railway instructs, then set `PUBLIC_BASE_URL=https://YOUR_DOMAIN` and redeploy.
 8. In Stripe **test** Workbench, add `https://YOUR_DOMAIN/webhooks/stripe` and subscribe at least `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `customer.subscription.created`, `customer.subscription.updated`, and `customer.subscription.deleted`. Copy its `whsec_...` value to `STRIPE_WEBHOOK_SECRET` and redeploy. Recommended extras: `invoice.payment_failed`, `invoice.paid`, `checkout.session.async_payment_failed`, `checkout.session.expired`.
 9. Enable the Stripe Customer Portal (test mode) for subscription changes, cancellation, and payment-method management. Limit customers to one subscription as defense in depth; SellerDrafts also persists and reuses one open Checkout session per user.
-10. Replace `{{OPERATOR_LEGAL_NAME}}`, `{{CONTACT_EMAIL}}`, and `{{JURISDICTION}}` in `pages/6_Legal.py` after legal review.
+10. Review the operator identity, contact email, Ohio jurisdiction, Terms, Privacy Policy, and Acceptable Use Policy before each public legal revision.
 11. Run `ENV=production python -m scripts.launch_check` against the production variable set. Follow the printed `next:` line and the printed `verify:` sequence: signup → template draft → history, then test-mode Checkout → webhook → portal. A test-mode key is an expected **blocker** during verification and can never pass the public-traffic gate. Then switch Stripe variables to **live** (`rk_live_...`, live `price_...`, live `whsec_...`), redeploy, and re-run launch_check until it prints `public-traffic gate: pass` and exits 0.
 12. Require the GitHub Actions `test` and `container-smoke` jobs on the default branch, then accept paid public traffic.
 

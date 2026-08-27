@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.1.0 crawlable public site and acquisition measurement — 2026-08-27
+
+- Added a server-rendered SellerDrafts home, canonical pricing and legal pages, and three Etsy seller guides while keeping the authenticated Streamlit product under `/app/`.
+- Added page-specific titles, descriptions, canonical URLs, Open Graph/X previews, truthful structured data, a sitemap, crawler controls, and noindex protection for private application routes.
+- Added signed first-party UTM attribution for newly created accounts plus an aggregate report for signups, first drafts, and active paid accounts; no TikTok or X advertising pixel was added.
+- Updated legal disclosure, Stripe return URLs, deployment routing, container smoke coverage, and PostgreSQL migrations for the public/private route split.
+
 ## v1.0.9 SellerDrafts brand and operator update — 2026-08-27
 
 - Changed public product naming from the previous brand to SellerDrafts while retaining ListingForge as the repository name.

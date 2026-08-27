@@ -453,7 +453,7 @@ def test_customer_portal_uses_linked_customer_and_instance_client(user_factory, 
     assert portal_calls == [
         {
             "customer": "cus_linked",
-            "return_url": "http://localhost:8080/About_Pricing?portal=return",
+            "return_url": "http://localhost:8080/app/About_Pricing?portal=return",
         }
     ]
 

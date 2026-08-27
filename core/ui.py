@@ -96,8 +96,8 @@ def render_sidebar(user: User | None = None) -> None:
 <nav class="sd-topbar" aria-label="SellerDrafts">
   <a class="sd-wordmark" href="/"><span>S</span>SellerDrafts</a>
   <div>
-    <a href="/About_Pricing">Plans</a>
-    <a href="/Legal">Legal</a>
+    <a href="/pricing">Plans</a>
+    <a href="/legal">Legal</a>
     <a class="sd-header-signin" href="/auth/login">Sign in</a>
   </div>
 </nav>
@@ -149,9 +149,7 @@ def heuristic_notice() -> None:
 
 def render_public_ctas(*, include_plans: bool = False) -> None:
     plans = (
-        '<a class="sd-cta sd-cta-tertiary" href="/About_Pricing">View plans</a>'
-        if include_plans
-        else ""
+        '<a class="sd-cta sd-cta-tertiary" href="/pricing">View plans</a>' if include_plans else ""
     )
     st.markdown(
         f"""
@@ -218,7 +216,7 @@ def render_export_reminder() -> None:
 
 def render_public_footer() -> None:
     st.divider()
-    st.markdown("[Home](/) · [Plans & Pricing](/About_Pricing) · [Legal](/Legal)")
+    st.markdown("[Home](/) · [Plans & Pricing](/pricing) · [Legal](/legal)")
     st.caption(FOOTER_CAPTION)
 
 

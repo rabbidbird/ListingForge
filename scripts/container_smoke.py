@@ -37,7 +37,7 @@ def _stripe_signature(payload: bytes, timestamp: int) -> str:
 
 
 def _websocket_smoke(client: httpx.Client) -> None:
-    websocket_url = re.sub(r"^http", "ws", BASE_URL) + "/_stcore/stream"
+    websocket_url = re.sub(r"^http", "ws", BASE_URL) + "/app/_stcore/stream"
     cookie_header = "; ".join(f"{name}={value}" for name, value in client.cookies.items())
     with connect(
         websocket_url,
@@ -56,6 +56,9 @@ def main() -> None:
         health = client.get("/healthz")
         _require(health.status_code == 200, "Migrated database health check failed.")
         _require(health.json() == {"status": "ok"}, "Unexpected health response.")
+        public_home = client.get("/")
+        _require(public_home.status_code == 200, "Public marketing home is not reachable.")
+        _require("SellerDrafts" in public_home.text, "Public home is missing product copy.")
 
         signup_page = client.get("/auth/signup")
         _require(signup_page.status_code == 200, "Signup page is not reachable through nginx.")
@@ -77,7 +80,10 @@ def main() -> None:
         authenticated_login = client.get("/auth/login")
         _require(authenticated_login.status_code == 303, "Session is not recognized after signup.")
         home = client.get("/")
-        _require(home.status_code == 200, "Streamlit is not reachable through nginx.")
+        _require(home.status_code == 303, "Authenticated home did not route to the workspace.")
+        _require(home.headers.get("location") == "/app/", "Unexpected workspace redirect.")
+        workspace = client.get("/app/")
+        _require(workspace.status_code == 200, "Streamlit is not reachable through nginx.")
         _websocket_smoke(client)
 
         event_id = f"evt_container_smoke_{uuid.uuid4().hex}"

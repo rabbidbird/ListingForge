@@ -43,6 +43,12 @@ class User(Base):
     email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     terms_accepted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     terms_version: Mapped[str] = mapped_column(String(32), default="2026-08-15")
+    acquisition_source: Mapped[str | None] = mapped_column(String(120))
+    acquisition_medium: Mapped[str | None] = mapped_column(String(120))
+    acquisition_campaign: Mapped[str | None] = mapped_column(String(120))
+    acquisition_content: Mapped[str | None] = mapped_column(String(120))
+    acquisition_term: Mapped[str | None] = mapped_column(String(120))
+    acquisition_landing_path: Mapped[str | None] = mapped_column(String(200))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )

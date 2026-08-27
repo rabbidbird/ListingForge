@@ -12,7 +12,14 @@ from urllib.parse import urlencode, urlparse
 
 import requests
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    Response,
+)
+from fastapi.staticfiles import StaticFiles
 from google.auth.exceptions import GoogleAuthError
 from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2 import id_token as google_id_token
@@ -20,6 +27,12 @@ from itsdangerous import BadData, URLSafeTimedSerializer
 from sqlalchemy import func, select
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from .attribution import (
+    ATTRIBUTION_COOKIE_NAME,
+    ATTRIBUTION_MAX_AGE_SECONDS,
+    pack_attribution,
+    user_attribution_fields,
+)
 from .auth import (
     AuthError,
     authenticate_user,
@@ -30,14 +43,16 @@ from .auth import (
     revoke_user_session,
 )
 from .billing import BillingError, WebhookVerificationError, handle_webhook
-from .config import get_settings
+from .config import PROJECT_ROOT, get_settings
 from .database import session_scope
+from .marketing import PUBLIC_PATHS, guide_page, home_page, legal_page, pricing_page
 from .migrate import database_at_migration_head
 from .models import User
 
 settings = get_settings()
 settings.validate_for_production()
 app = FastAPI(title="SellerDrafts edge", docs_url=None, redoc_url=None, openapi_url=None)
+app.mount("/assets", StaticFiles(directory=PROJECT_ROOT / "static"), name="assets")
 
 
 def _trusted_hosts() -> list[str]:
@@ -88,11 +103,119 @@ async def security_and_soft_limit(request: Request, call_next):
     response.headers["X-Frame-Options"] = "SAMEORIGIN"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    if request.url.path.startswith(("/auth/", "/app/")):
+        response.headers["X-Robots-Tag"] = "noindex, nofollow"
     response.headers["Content-Security-Policy"] = (
-        "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; "
+        "default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+        "form-action 'self'; "
         "base-uri 'none'; frame-ancestors 'self'"
     )
     return response
+
+
+def _public_page_response(request: Request, content: str) -> HTMLResponse:
+    response = HTMLResponse(content, headers={"Cache-Control": "public, max-age=300"})
+    packed = pack_attribution(request.query_params, landing_path=request.url.path)
+    if packed:
+        response.set_cookie(
+            ATTRIBUTION_COOKIE_NAME,
+            packed,
+            max_age=ATTRIBUTION_MAX_AGE_SECONDS,
+            httponly=True,
+            secure=settings.cookie_secure,
+            samesite="lax",
+            path="/",
+        )
+    return response
+
+
+@app.get("/", response_class=HTMLResponse)
+def public_home(request: Request):
+    if _current_request_user(request):
+        return RedirectResponse("/app/", status_code=303)
+    return _public_page_response(request, home_page())
+
+
+@app.get("/pricing", response_class=HTMLResponse)
+def public_pricing(request: Request):
+    if _current_request_user(request):
+        return RedirectResponse("/app/About_Pricing", status_code=303)
+    return _public_page_response(request, pricing_page())
+
+
+@app.get("/legal", response_class=HTMLResponse)
+def public_legal(request: Request):
+    return _public_page_response(request, legal_page())
+
+
+@app.get("/guides/{slug}", response_class=HTMLResponse)
+def public_guide(request: Request, slug: str):
+    content = guide_page(slug)
+    if content is None:
+        return HTMLResponse(
+            _page(
+                "Guide not found",
+                '<h1>Guide not found</h1><p class="note"><a href="/">Return to SellerDrafts</a>.</p>',
+            ),
+            status_code=404,
+        )
+    return _public_page_response(request, content)
+
+
+@app.get("/robots.txt", response_class=PlainTextResponse)
+def robots_txt():
+    body = (
+        "User-agent: *\n"
+        "Allow: /\n"
+        "Disallow: /app/\n"
+        "Disallow: /auth/\n"
+        "Disallow: /webhooks/\n"
+        "Disallow: /_stcore/\n\n"
+        "User-agent: OAI-SearchBot\n"
+        "Allow: /\n"
+        "Disallow: /app/\n"
+        "Disallow: /auth/\n\n"
+        "User-agent: GPTBot\n"
+        "Disallow: /\n\n"
+        f"Sitemap: {settings.public_base_url}/sitemap.xml\n"
+    )
+    return PlainTextResponse(body, headers={"Cache-Control": "public, max-age=3600"})
+
+
+@app.get("/favicon.ico")
+def favicon():
+    return RedirectResponse("/assets/favicon.ico", status_code=307)
+
+
+@app.get("/sitemap.xml")
+def sitemap_xml():
+    urls = "".join(
+        f"<url><loc>{settings.public_base_url}{path}</loc><lastmod>2026-08-27</lastmod></url>"
+        for path in PUBLIC_PATHS
+    )
+    body = f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{urls}</urlset>'
+    return Response(
+        body,
+        media_type="application/xml",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+def _legacy_streamlit_redirect(request: Request, public_path: str, app_path: str):
+    target = app_path if _current_request_user(request) else public_path
+    if request.url.query:
+        target = f"{target}?{request.url.query}"
+    return RedirectResponse(target, status_code=308)
+
+
+@app.get("/About_Pricing")
+def legacy_pricing(request: Request):
+    return _legacy_streamlit_redirect(request, "/pricing", "/app/About_Pricing")
+
+
+@app.get("/Legal")
+def legacy_legal(request: Request):
+    return _legacy_streamlit_redirect(request, "/legal", "/app/Legal")
 
 
 def _page(title: str, body: str) -> str:
@@ -146,6 +269,10 @@ def _set_session_cookie(response: RedirectResponse, token: str) -> None:
         samesite="lax",
         path="/",
     )
+
+
+def _clear_attribution_cookie(response: Response) -> None:
+    response.delete_cookie(ATTRIBUTION_COOKIE_NAME, path="/")
 
 
 def _current_request_user(request: Request) -> User | None:
@@ -258,7 +385,7 @@ SIGNUP_FORM = """
 <label for="name">Name</label><input id="name" name="name" type="text" autocomplete="name" maxlength="120" required value="{name}">
 <label for="email">Email</label><input id="email" name="email" type="email" autocomplete="email" required value="{email}">
 <label for="password">Password</label><input id="password" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required>
-<div class="check"><input id="terms" name="accepted_terms" type="checkbox" value="true" required><label for="terms">I accept the <a href="/Legal" target="_blank">Terms of Service and Privacy Policy</a>.</label></div>
+<div class="check"><input id="terms" name="accepted_terms" type="checkbox" value="true" required><label for="terms">I accept the <a href="/legal" target="_blank">Terms of Service and Privacy Policy</a>.</label></div>
 <button type="submit">Create account</button>
 </form>
 <p class="note">Already registered? <a href="/auth/login">Sign in</a>.</p>
@@ -269,7 +396,7 @@ SIGNUP_FORM = """
 def _login_form(*, error: str = "", email: str = "") -> str:
     google_terms = (
         '<p class="fine">If Google creates a new SellerDrafts account, continuing means you '
-        'accept the <a href="/Legal" target="_blank">Terms of Service and Privacy Policy</a>.</p>'
+        'accept the <a href="/legal" target="_blank">Terms of Service and Privacy Policy</a>.</p>'
         if settings.google_configured
         else ""
     )
@@ -284,7 +411,7 @@ def _login_form(*, error: str = "", email: str = "") -> str:
 def _signup_form(*, error: str = "", name: str = "", email: str = "") -> str:
     google_terms = (
         '<p class="fine">By continuing with Google, you accept the '
-        '<a href="/Legal" target="_blank">Terms of Service and Privacy Policy</a>.</p>'
+        '<a href="/legal" target="_blank">Terms of Service and Privacy Policy</a>.</p>'
         if settings.google_configured
         else ""
     )
@@ -337,6 +464,7 @@ def login(
         )
     response = RedirectResponse("/", status_code=303)
     _set_session_cookie(response, token)
+    _clear_attribution_cookie(response)
     return response
 
 
@@ -398,6 +526,7 @@ def google_callback(request: Request):
                 subject=subject,
                 email=google_email,
                 name=google_name,
+                attribution=user_attribution_fields(request.cookies.get(ATTRIBUTION_COOKIE_NAME)),
             )
             token = create_user_session(session, user.id)
     except (AuthError, GoogleAuthError, requests.RequestException, TypeError, ValueError):
@@ -405,6 +534,7 @@ def google_callback(request: Request):
 
     response = RedirectResponse("/", status_code=303)
     _set_session_cookie(response, token)
+    _clear_attribution_cookie(response)
     return response
 
 
@@ -444,6 +574,7 @@ def signup(
                 password=password,
                 name=name,
                 accepted_terms=accepted_terms == "true",
+                attribution=user_attribution_fields(request.cookies.get(ATTRIBUTION_COOKIE_NAME)),
             )
             token = None
             if not settings.email_verification_required:
@@ -472,6 +603,7 @@ def signup(
         )
     response = RedirectResponse("/", status_code=303)
     _set_session_cookie(response, token)
+    _clear_attribution_cookie(response)
     return response
 
 
@@ -486,7 +618,7 @@ def account_page(request: Request):
 <p class="note">Your drafts, usage, and billing entitlement stay attached to this account.</p>
 <div class="account"><strong>{html.escape(user.name)}</strong><br>{html.escape(user.email)}<br><span class="note">Sign-in method: {provider}</span></div>
 <a class="button" href="/">Return to SellerDrafts</a>
-<p class="note"><a href="/About_Pricing">Plans and billing</a> · <a href="/auth/logout">Log out</a></p>
+<p class="note"><a href="/app/About_Pricing">Plans and billing</a> · <a href="/auth/logout">Log out</a></p>
 """
     return HTMLResponse(_page("Account", body))
 
