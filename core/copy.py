@@ -15,9 +15,9 @@ PROMISE = (
     "SellerDrafts uses only what you enter, so missing attributes stay missing."
 )
 HERO_SUPPORT = (
-    "Create starting drafts for Etsy, Shopify, and Amazon-style marketplaces. "
-    "You review every claim, then export. SellerDrafts does not publish listings for you "
-    "and does not promise ranking, conversion, or sales."
+    "Turn verified product facts into an Etsy title, description, and tags; Shopify and "
+    "Amazon-style drafts are available too. SellerDrafts uses only what you enter, leaves "
+    "missing attributes missing, and never publishes for you."
 )
 DRAFT_BANNER = (
     "DRAFT — verify before publishing. Confirm every material, claim, rating, "

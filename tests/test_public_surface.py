@@ -14,6 +14,7 @@ from core.copy import (
     CLAIM_CATEGORIES,
     DRAFT_BANNER,
     FEATURES,
+    HERO_SUPPORT,
     HOW_IT_WORKS,
     PLAN_BLURBS,
     PRODUCT_NAME,
@@ -97,8 +98,8 @@ def test_public_home_converts_a_cold_visitor():
     assert not app.exception
     text = _visible_text(app)
     assert PRODUCT_NAME in text
-    assert TAGLINE in text
-    assert PROMISE in text
+    assert TAGLINE not in text
+    assert HERO_SUPPORT in text
     assert "Create account" in text
     assert "Sign in" in text
     assert "How it works" in text

@@ -5,7 +5,7 @@ from __future__ import annotations
 import streamlit as st
 
 from core.auth import streamlit_current_user
-from core.copy import HERO_SUPPORT, PRODUCT_NAME, PROMISE, TAGLINE
+from core.copy import HERO_SUPPORT, PRODUCT_NAME, TAGLINE
 from core.ui import (
     configure_page,
     draft_banner,
@@ -34,15 +34,10 @@ render_sidebar(user)
 if user is None:
     st.markdown('<p class="sd-eyebrow">Etsy-first listing workflow</p>', unsafe_allow_html=True)
     st.title("Etsy listing drafts that stay inside the facts")
-    st.markdown(f'<p class="sd-lede">{PROMISE}</p>', unsafe_allow_html=True)
-    st.write(HERO_SUPPORT)
-    st.caption(TAGLINE)
+    st.markdown(f'<p class="sd-lede">{HERO_SUPPORT}</p>', unsafe_allow_html=True)
     draft_banner()
     render_public_ctas(include_plans=False)
-    st.caption(
-        "Create account → generate one template draft → find it later in private History. "
-        "Already registered? Sign in."
-    )
+    st.caption("Create account → template draft → History")
     st.divider()
     render_positioning()
     st.divider()

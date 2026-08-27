@@ -95,7 +95,11 @@ def render_sidebar(user: User | None = None) -> None:
             """
 <nav class="sd-topbar" aria-label="SellerDrafts">
   <a class="sd-wordmark" href="/"><span>S</span>SellerDrafts</a>
-  <div><a href="/About_Pricing">Plans</a><a href="/Legal">Legal</a></div>
+  <div>
+    <a href="/About_Pricing">Plans</a>
+    <a href="/Legal">Legal</a>
+    <a class="sd-header-signin" href="/auth/login">Sign in</a>
+  </div>
 </nav>
 """,
             unsafe_allow_html=True,
@@ -133,7 +137,10 @@ def render_sidebar(user: User | None = None) -> None:
 
 
 def draft_banner() -> None:
-    st.warning(DRAFT_BANNER)
+    st.markdown(
+        f'<div class="sd-draft-banner" role="alert">{html.escape(DRAFT_BANNER)}</div>',
+        unsafe_allow_html=True,
+    )
 
 
 def heuristic_notice() -> None:
