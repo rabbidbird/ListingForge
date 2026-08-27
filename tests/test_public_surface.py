@@ -143,16 +143,15 @@ def test_public_pricing_matches_backend_limits(monkeypatch):
     assert forbidden_claims_in(text) == []
 
 
-def test_legal_placeholders_remain_detectable(monkeypatch):
-    remaining = remaining_legal_placeholders()
-    assert "{{OPERATOR_LEGAL_NAME}}" in remaining
-    assert "{{CONTACT_EMAIL}}" in remaining
-    assert "{{JURISDICTION}}" in remaining
+def test_legal_operator_details_are_complete(monkeypatch):
+    assert remaining_legal_placeholders() == []
     monkeypatch.setattr(core.ui, "render_sidebar", lambda _user=None: None)
     app = AppTest.from_file("pages/6_Legal.py").run(timeout=15)
     assert not app.exception
     text = _visible_text(app)
-    assert "{{OPERATOR_LEGAL_NAME}}" in text
+    assert "Jaylen Johnson" in text
+    assert "jaylen.johnson0@gmail.com" in text
+    assert "Ohio, United States" in text
     assert "starting drafts" in text.lower() or "starting draft" in text.lower()
 
 

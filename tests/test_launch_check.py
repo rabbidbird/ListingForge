@@ -26,11 +26,8 @@ def _configure_complete_production(monkeypatch, *, stripe_key: str = "rk_live_51
     reset_settings_cache()
 
 
-def test_launch_check_reports_remaining_legal_placeholders():
-    remaining = remaining_legal_placeholders()
-    assert "{{OPERATOR_LEGAL_NAME}}" in remaining
-    assert "{{CONTACT_EMAIL}}" in remaining
-    assert "{{JURISDICTION}}" in remaining
+def test_launch_check_reports_completed_legal_details():
+    assert remaining_legal_placeholders() == []
     report = launch_report()
     assert report["environment"] == "test"
     assert report["ready_for_public_traffic"] is False
@@ -70,7 +67,7 @@ def test_launch_check_blocks_incomplete_production(monkeypatch, tmp_path):
     assert report["production"] is True
     assert report["ready_for_public_traffic"] is False
     assert any("STRIPE_PRICE_STARTER" in item for item in report["blockers"])
-    assert any("Legal placeholders remain" in item for item in report["blockers"])
+    assert report["legal_placeholders"] == []
     assert "Create Stripe Prices" in report["next_operator_action"]
     rendered = render_report(report)
     assert "verify:" in rendered
