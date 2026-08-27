@@ -42,6 +42,6 @@ Use **test-mode Stripe first**. Do not point live Price IDs and a live key at a 
 8. **Billing smoke (test mode):** Checkout Starter or Pro → return `?checkout=success` → refresh until the plan is paid → open the Customer Portal → cancel or change payment method → confirm return `?portal=return` and that inactive statuses fall back to Free limits.
 9. Replace legal placeholders after legal review. Switch Stripe variables to **live** (`rk_live_...`, live `price_...`, live `whsec_...`). Redeploy.
 10. Re-run `ENV=production python -m scripts.launch_check`. It must print `public-traffic gate: pass` and exit `0`. A remaining test-mode key keeps the gate blocked.
-11. One live signup + one live test-clock or real $12 Checkout of your own, then accept paid public traffic.
+11. After `launch_check` passes against live configuration, open paid traffic and monitor the first genuine $12 Starter Checkout, webhook delivery, entitlement update, portal access, and cancellation lifecycle. Do not use test card numbers, Test Clocks, or the operator's own real payment details to test live mode.
 
 Do not accept paid public traffic until all four boxes are complete and launch_check passes against the live variable set.
