@@ -142,8 +142,8 @@ def create_checkout_session(user_id: uuid.UUID, plan: str) -> str:
             "mode": "subscription",
             "managed_payments": {"enabled": False},
             "line_items": [{"price": price_id, "quantity": 1}],
-            "success_url": f"{settings.public_base_url}/About_Pricing?checkout=success",
-            "cancel_url": f"{settings.public_base_url}/About_Pricing?checkout=cancelled",
+            "success_url": f"{settings.public_base_url}/app/About_Pricing?checkout=success",
+            "cancel_url": f"{settings.public_base_url}/app/About_Pricing?checkout=cancelled",
             "client_reference_id": str(user_id),
             "metadata": {"user_id": str(user_id), "plan": plan, "price_id": price_id},
             "subscription_data": {
@@ -184,7 +184,7 @@ def create_customer_portal_session(user_id: uuid.UUID) -> str:
         portal = client.v1.billing_portal.sessions.create(
             {
                 "customer": customer_id,
-                "return_url": f"{settings.public_base_url}/About_Pricing?portal=return",
+                "return_url": f"{settings.public_base_url}/app/About_Pricing?portal=return",
             }
         )
     except stripe.StripeError as exc:

@@ -108,9 +108,9 @@ Information is used to authenticate users, provide private draft history, genera
 
 Providers receive only information reasonably needed for their role. Data may be processed in countries different from yours, subject to the safeguards required by applicable law.
 
-### 4. Cookies
+### 4. Cookies and campaign attribution
 
-SellerDrafts uses an essential, HttpOnly session cookie to keep users signed in and a short-lived anti-forgery cookie on authentication forms. These are required for account security; no advertising cookie is included in v1.
+SellerDrafts uses an essential, HttpOnly session cookie to keep users signed in and a short-lived anti-forgery cookie on authentication forms. When someone arrives through a tagged campaign link, SellerDrafts may also store a signed, first-party attribution cookie for up to 30 days. It contains limited campaign source, medium, campaign, creative, search-term, and landing-path labels. If the visitor creates an account, those labels may be attached to the account for aggregate measurement of signups, first drafts, and subscriptions. SellerDrafts does not install a TikTok or X advertising pixel in v1 and does not use this cookie for cross-site tracking.
 
 ### 5. Retention
 

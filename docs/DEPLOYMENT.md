@@ -10,8 +10,8 @@ The four remaining launch items are operator-owned. The paid PostgreSQL/auth/bil
 - External port: `$PORT` (default `8080`)
 - Health check: `GET /healthz` (database reachable and exactly at the repository's Alembic head)
 - Stripe webhook: `POST /webhooks/stripe`
-- Checkout return: `/About_Pricing?checkout=success` or `?checkout=cancelled`
-- Portal return: `/About_Pricing?portal=return`
+- Checkout return: `/app/About_Pricing?checkout=success` or `?checkout=cancelled`
+- Portal return: `/app/About_Pricing?portal=return`
 - Startup migration: `python -m core.migrate` → `alembic upgrade head`
 - Processes behind nginx: FastAPI on `127.0.0.1:8000`, Streamlit on `127.0.0.1:8501`
 - Streamlit: headless, viewer toolbar, usage stats off, built-in dataframe export/copy controls off so confirmed download buttons remain the export path

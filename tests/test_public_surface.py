@@ -25,7 +25,10 @@ from core.copy import (
     plan_limit_lines,
     public_text_blob,
 )
+from core.database import session_scope
+from core.models import Listing, Subscription, User
 from core.plans import PLANS
+from scripts.acquisition_report import build_report
 from scripts.launch_check import remaining_legal_placeholders
 
 
@@ -200,3 +203,43 @@ def test_nginx_applies_client_and_global_soft_limits_to_all_public_routes():
     assert "proxy_set_header X-Real-IP $truedraft_client_ip" in server
     assert "proxy_set_header X-Forwarded-Proto $truedraft_client_proto" in server
     assert "limit_req_status 429" in config
+
+
+def test_acquisition_report_returns_aggregate_outcomes_only(user_factory):
+    user = user_factory(email="campaign-report@example.com")
+    with session_scope() as session:
+        stored = session.get(User, user.id)
+        stored.acquisition_source = "x"
+        stored.acquisition_campaign = "launch"
+        session.add(
+            Listing(
+                user_id=user.id,
+                product_name="Verified item",
+                primary_keyword="",
+                platform="etsy",
+                category="default",
+                best_title="Verified item",
+                description="Verified item",
+                tags_json=[],
+                overall_score=0,
+                grade="D",
+                full_json={},
+            )
+        )
+        subscription = session.query(Subscription).filter_by(user_id=user.id).one()
+        subscription.plan = "starter"
+        subscription.status = "active"
+
+    with session_scope() as session:
+        rows = build_report(session)
+
+    row = next(item for item in rows if item["source"] == "x")
+    assert row == {
+        "source": "x",
+        "campaign": "launch",
+        "signups": 1,
+        "first_drafts": 1,
+        "active_paid": 1,
+    }
+    assert "email" not in row
+    assert "user_id" not in row

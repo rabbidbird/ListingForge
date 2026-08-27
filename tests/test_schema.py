@@ -39,6 +39,15 @@ def test_alembic_upgrade_creates_all_model_tables(tmp_path, monkeypatch):
         "pending_checkout_plan",
         "pending_checkout_expires_at",
     }.issubset(subscription_columns)
+    user_columns = {column["name"] for column in inspector.get_columns("users")}
+    assert {
+        "acquisition_source",
+        "acquisition_medium",
+        "acquisition_campaign",
+        "acquisition_content",
+        "acquisition_term",
+        "acquisition_landing_path",
+    }.issubset(user_columns)
 
     with session_scope() as session:
         assert database_at_migration_head(session) is True
