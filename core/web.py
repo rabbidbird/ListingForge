@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import base64
 import hashlib
-import hmac
 import html
-import json
 import secrets
 import threading
 import time
@@ -19,6 +16,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from google.auth.exceptions import GoogleAuthError
 from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2 import id_token as google_id_token
+from itsdangerous import BadData, URLSafeTimedSerializer
 from sqlalchemy import func, select
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -54,7 +52,6 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=_trusted_hosts(), www_re
 _AUTH_WINDOW_SECONDS = 600
 _AUTH_REQUESTS_PER_WINDOW = 40
 _AUTH_IP_BUCKET_LIMIT = 10_000
-_GOOGLE_OAUTH_COOKIE = "sellerdrafts_google_oauth"
 _GOOGLE_OAUTH_MAX_AGE = 600
 _ip_requests: OrderedDict[str, deque[float]] = OrderedDict()
 _ip_lock = threading.Lock()
@@ -166,61 +163,33 @@ def _google_button() -> str:
 """
 
 
-def _oauth_tag(value: str) -> str:
-    return hmac.new(
-        settings.session_secret.encode("utf-8"),
-        f"google-oauth-value:{value}".encode(),
-        hashlib.sha256,
-    ).hexdigest()
+def _google_state_serializer() -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(
+        settings.session_secret,
+        salt="sellerdrafts-google-oauth-state-v1",
+        signer_kwargs={"digest_method": hashlib.sha256},
+    )
 
 
 def _pack_google_oauth(state: str, nonce: str) -> str:
-    payload = json.dumps(
-        {
-            "state_tag": _oauth_tag(state),
-            "nonce_tag": _oauth_tag(nonce),
-            "issued_at": int(time.time()),
-        },
-        separators=(",", ":"),
-    ).encode("utf-8")
-    encoded = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
-    signature = hmac.new(
-        settings.session_secret.encode("utf-8"),
-        f"google-oauth-payload:{encoded}".encode(),
-        hashlib.sha256,
-    ).digest()
-    return f"{encoded}.{base64.urlsafe_b64encode(signature).decode('ascii').rstrip('=')}"
+    return _google_state_serializer().dumps({"state": state, "nonce": nonce})
 
 
 def _unpack_google_oauth(value: str | None) -> tuple[str, str] | None:
     if not value or len(value) > 2048:
         return None
     try:
-        encoded, supplied_signature = value.split(".", 1)
-        expected_signature = hmac.new(
-            settings.session_secret.encode("utf-8"),
-            f"google-oauth-payload:{encoded}".encode(),
-            hashlib.sha256,
-        ).digest()
-        decoded_signature = base64.urlsafe_b64decode(
-            supplied_signature + "=" * (-len(supplied_signature) % 4)
+        payload = _google_state_serializer().loads(
+            value,
+            max_age=_GOOGLE_OAUTH_MAX_AGE,
         )
-        if not hmac.compare_digest(decoded_signature, expected_signature):
-            return None
-        payload = json.loads(
-            base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)).decode("utf-8")
-        )
-        state_tag = payload["state_tag"]
-        nonce_tag = payload["nonce_tag"]
-        issued_at = int(payload["issued_at"])
-    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        state = payload["state"]
+        nonce = payload["nonce"]
+    except (BadData, KeyError, TypeError, ValueError):
         return None
-    now = int(time.time())
-    if not isinstance(state_tag, str) or not isinstance(nonce_tag, str):
+    if not isinstance(state, str) or not isinstance(nonce, str):
         return None
-    if issued_at > now + 60 or now - issued_at > _GOOGLE_OAUTH_MAX_AGE:
-        return None
-    return state_tag, nonce_tag
+    return state, nonce
 
 
 class _TimeoutSession(requests.Session):
@@ -253,7 +222,7 @@ def _google_token_claims(code: str) -> dict[str, object]:
 
 
 def _google_error(message: str, *, status_code: int = 400) -> HTMLResponse:
-    response = HTMLResponse(
+    return HTMLResponse(
         _page(
             "Google sign-in",
             f'<h1>Google sign-in</h1><p class="error">{html.escape(message)}</p>'
@@ -262,8 +231,6 @@ def _google_error(message: str, *, status_code: int = 400) -> HTMLResponse:
         ),
         status_code=status_code,
     )
-    response.delete_cookie(_GOOGLE_OAUTH_COOKIE, path="/auth/google")
-    return response
 
 
 LOGIN_FORM = """
@@ -379,8 +346,8 @@ def google_login(request: Request):
         return _google_error("Google sign-in is not configured.", status_code=404)
     if _current_request_user(request):
         return RedirectResponse("/", status_code=303)
-    state = secrets.token_urlsafe(32)
     nonce = secrets.token_urlsafe(32)
+    state = _pack_google_oauth(secrets.token_urlsafe(32), nonce)
     authorization_url = "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(
         {
             "client_id": settings.google_client_id,
@@ -393,30 +360,16 @@ def google_login(request: Request):
             "prompt": "select_account",
         }
     )
-    response = RedirectResponse(authorization_url, status_code=302)
-    response.set_cookie(
-        _GOOGLE_OAUTH_COOKIE,
-        _pack_google_oauth(state, nonce),
-        max_age=_GOOGLE_OAUTH_MAX_AGE,
-        httponly=True,
-        secure=settings.cookie_secure,
-        samesite="lax",
-        path="/auth/google",
-    )
-    return response
+    return RedirectResponse(authorization_url, status_code=302)
 
 
 @app.get("/auth/google/callback")
 def google_callback(request: Request):
     if not settings.google_configured:
         return _google_error("Google sign-in is not configured.", status_code=404)
-    packed = _unpack_google_oauth(request.cookies.get(_GOOGLE_OAUTH_COOKIE))
     returned_state = request.query_params.get("state", "")
-    if (
-        packed is None
-        or not returned_state
-        or not secrets.compare_digest(packed[0], _oauth_tag(returned_state))
-    ):
+    packed = _unpack_google_oauth(returned_state)
+    if packed is None:
         return _google_error("This Google sign-in request expired or is invalid.")
     if request.query_params.get("error"):
         return _google_error("Google sign-in was cancelled or could not be completed.")
@@ -436,7 +389,7 @@ def google_callback(request: Request):
             or not isinstance(google_name, str)
             or claims.get("email_verified") is not True
             or not isinstance(returned_nonce, str)
-            or not secrets.compare_digest(packed[1], _oauth_tag(returned_nonce))
+            or not secrets.compare_digest(packed[1], returned_nonce)
         ):
             raise AuthError("Google sign-in could not be completed.")
         with session_scope() as session:
@@ -451,7 +404,6 @@ def google_callback(request: Request):
         return _google_error("Google sign-in could not be completed. Please try again.")
 
     response = RedirectResponse("/", status_code=303)
-    response.delete_cookie(_GOOGLE_OAUTH_COOKIE, path="/auth/google")
     _set_session_cookie(response, token)
     return response
 

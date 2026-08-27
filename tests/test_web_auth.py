@@ -109,7 +109,7 @@ def test_google_callback_links_existing_email_and_sets_session(monkeypatch, user
         query = parse_qs(urlparse(start.headers["location"]).query)
         state = query["state"][0]
         nonce = query["nonce"][0]
-        packed = web._unpack_google_oauth(client.cookies.get("sellerdrafts_google_oauth"))
+        packed = web._unpack_google_oauth(state)
         assert packed is not None
         monkeypatch.setattr(
             web,
