@@ -192,6 +192,7 @@ def test_nginx_applies_client_and_global_soft_limits_to_all_public_routes():
     assert "limit_req_zone $server_name zone=truedraft_global_requests" in config
     assert "limit_conn_zone $server_name zone=truedraft_global_connections" in config
     assert "limit_req zone=truedraft_client_requests" in server
+    assert "limit_req zone=truedraft_client_requests burst=300 nodelay" in server
     assert "limit_req zone=truedraft_global_requests" in server
     assert "limit_conn truedraft_client_connections" in server
     assert "limit_conn truedraft_global_connections" in server
