@@ -166,9 +166,17 @@ def _google_button() -> str:
 """
 
 
+def _oauth_digest(value: str) -> str:
+    return hashlib.sha256(value.encode()).hexdigest()
+
+
 def _pack_google_oauth(state: str, nonce: str) -> str:
     payload = json.dumps(
-        {"state": state, "nonce": nonce, "issued_at": int(time.time())},
+        {
+            "state_digest": _oauth_digest(state),
+            "nonce_digest": _oauth_digest(nonce),
+            "issued_at": int(time.time()),
+        },
         separators=(",", ":"),
     ).encode("utf-8")
     encoded = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
@@ -198,17 +206,17 @@ def _unpack_google_oauth(value: str | None) -> tuple[str, str] | None:
         payload = json.loads(
             base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)).decode("utf-8")
         )
-        state = payload["state"]
-        nonce = payload["nonce"]
+        state_digest = payload["state_digest"]
+        nonce_digest = payload["nonce_digest"]
         issued_at = int(payload["issued_at"])
     except (KeyError, TypeError, ValueError, json.JSONDecodeError):
         return None
     now = int(time.time())
-    if not isinstance(state, str) or not isinstance(nonce, str):
+    if not isinstance(state_digest, str) or not isinstance(nonce_digest, str):
         return None
     if issued_at > now + 60 or now - issued_at > _GOOGLE_OAUTH_MAX_AGE:
         return None
-    return state, nonce
+    return state_digest, nonce_digest
 
 
 class _TimeoutSession(requests.Session):
@@ -403,7 +411,7 @@ def google_callback(request: Request):
     if (
         packed is None
         or not returned_state
-        or not secrets.compare_digest(packed[0], returned_state)
+        or not secrets.compare_digest(packed[0], _oauth_digest(returned_state))
     ):
         return _google_error("This Google sign-in request expired or is invalid.")
     if request.query_params.get("error"):
@@ -424,7 +432,7 @@ def google_callback(request: Request):
             or not isinstance(google_name, str)
             or claims.get("email_verified") is not True
             or not isinstance(returned_nonce, str)
-            or not secrets.compare_digest(packed[1], returned_nonce)
+            or not secrets.compare_digest(packed[1], _oauth_digest(returned_nonce))
         ):
             raise AuthError("Google sign-in could not be completed.")
         with session_scope() as session:

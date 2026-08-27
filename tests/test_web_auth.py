@@ -106,7 +106,9 @@ def test_google_callback_links_existing_email_and_sets_session(monkeypatch, user
 
     with TestClient(web.app) as client:
         start = client.get("/auth/google", follow_redirects=False)
-        state = parse_qs(urlparse(start.headers["location"]).query)["state"][0]
+        query = parse_qs(urlparse(start.headers["location"]).query)
+        state = query["state"][0]
+        nonce = query["nonce"][0]
         packed = web._unpack_google_oauth(client.cookies.get("sellerdrafts_google_oauth"))
         assert packed is not None
         monkeypatch.setattr(
@@ -117,7 +119,7 @@ def test_google_callback_links_existing_email_and_sets_session(monkeypatch, user
                 "email": "linked@example.com",
                 "email_verified": True,
                 "name": "Linked User",
-                "nonce": packed[1],
+                "nonce": nonce,
             },
         )
         callback = client.get(
