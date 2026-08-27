@@ -31,14 +31,18 @@ configure_page(
 user = streamlit_current_user()
 render_sidebar(user)
 
-st.title(PRODUCT_NAME)
-st.subheader(TAGLINE)
-st.write(PROMISE)
-st.write(HERO_SUPPORT)
-draft_banner()
-
 if user is None:
-    render_public_ctas()
+    st.markdown('<p class="sd-eyebrow">Etsy-first listing workflow</p>', unsafe_allow_html=True)
+    st.title("Etsy listing drafts that stay inside the facts")
+    st.markdown(f'<p class="sd-lede">{PROMISE}</p>', unsafe_allow_html=True)
+    st.write(HERO_SUPPORT)
+    st.caption(TAGLINE)
+    draft_banner()
+    render_public_ctas(include_plans=False)
+    st.caption(
+        "Create account → generate one template draft → find it later in private History. "
+        "Already registered? Sign in."
+    )
     st.divider()
     render_positioning()
     st.divider()
@@ -54,6 +58,10 @@ if user is None:
     heuristic_notice()
     render_public_footer()
 else:
+    st.markdown(f'<p class="sd-eyebrow">{PRODUCT_NAME}</p>', unsafe_allow_html=True)
+    st.title("Draft workspace")
+    st.caption(TAGLINE)
+    draft_banner()
     usage = get_usage(user.id)
     st.success(f"Welcome back, {user.name}.")
     first, second, third = st.columns(3)

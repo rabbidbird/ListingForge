@@ -64,18 +64,6 @@ for column, plan_name in zip(columns, ["free", "starter", "pro", "agency"], stri
         for line in plan_limit_lines(plan_name):
             st.write(line)
 
-st.markdown(
-    """
-| | Free | Starter | Pro | Agency |
-|---|---:|---:|---:|---:|
-| Price | $0 | $12/month | $29/month | $79/month |
-| Drafts / UTC day | 8 | 50 | 250 | 1,000 |
-| Drafts / UTC month | 40 | 1,000 | 5,000 | 25,000 |
-| Rows / bulk job | 5 | 25 | 100 | 250 |
-| LLM-assisted generation | Unavailable at launch | Unavailable at launch | Unavailable at launch | Unavailable at launch |
-| Fact-lock + review export | Yes | Yes | Yes | Yes |
-"""
-)
 st.caption(
     "Limits are enforced per user in database transactions. Launch generation uses the "
     "fact-locked template path. Periods are UTC."

@@ -9,6 +9,7 @@ from core.auth import (
     AuthError,
     authenticate_user,
     create_user_session,
+    get_or_create_google_user,
     get_user_by_session_token,
     register_user,
     revoke_user_session,
@@ -90,6 +91,26 @@ def test_duplicate_email_is_rejected(user_factory):
             name="Duplicate",
             accepted_terms=True,
         )
+
+
+def test_google_identity_creates_one_user_and_reuses_subject():
+    with session_scope() as session:
+        first = get_or_create_google_user(
+            session,
+            subject="google-subject-new",
+            email="google-user@example.com",
+            name="Google User",
+        )
+        first_id = first.id
+    with session_scope() as session:
+        second = get_or_create_google_user(
+            session,
+            subject="google-subject-new",
+            email="google-user@example.com",
+            name="Google User",
+        )
+        assert second.id == first_id
+        assert session.query(User).filter_by(email="google-user@example.com").count() == 1
 
 
 def test_revoked_session_is_rejected(user_factory):

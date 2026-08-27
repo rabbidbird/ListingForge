@@ -8,3 +8,12 @@ enableXsrfProtection = true
 [client]
 toolbarMode = "viewer"
 disableDataExport = true
+showSidebarNavigation = false
+
+[theme]
+base = "dark"
+primaryColor = "#f4b860"
+backgroundColor = "#0b1220"
+secondaryBackgroundColor = "#111c2e"
+textColor = "#f8fafc"
+font = "sans serif"

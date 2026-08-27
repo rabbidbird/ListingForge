@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import re
+from urllib.parse import parse_qs, urlparse
 
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
@@ -50,6 +51,87 @@ def test_public_signup_sets_httponly_session_cookie():
         assert client.get("/auth/login", follow_redirects=False).status_code == 303
     with session_scope() as session:
         assert session.query(User).filter_by(email="web@example.com").one().terms_accepted_at
+
+
+def test_password_login_still_sets_session_cookie(user_factory):
+    user_factory(email="password-login@example.com")
+    web = _reload_web()
+    with TestClient(web.app) as client:
+        page = client.get("/auth/login")
+        response = client.post(
+            "/auth/login",
+            data={
+                "csrf_token": _csrf(page.text),
+                "email": "password-login@example.com",
+                "password": "correct horse battery staple",
+            },
+            follow_redirects=False,
+        )
+    assert response.status_code == 303
+    assert "truedraft_session" in response.headers["set-cookie"]
+    assert "HttpOnly" in response.headers["set-cookie"]
+
+
+def test_google_button_is_hidden_without_configuration():
+    web = _reload_web()
+    with TestClient(web.app) as client:
+        assert "Sign in with Google" not in client.get("/auth/login").text
+        assert "Sign in with Google" not in client.get("/auth/signup").text
+        assert client.get("/auth/google", follow_redirects=False).status_code == 404
+
+
+def test_google_callback_rejects_missing_or_forged_state(monkeypatch):
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "google-client-id.apps.googleusercontent.com")
+    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "google-client-secret")
+    reset_settings_cache()
+    web = _reload_web()
+    with TestClient(web.app) as client:
+        missing = client.get("/auth/google/callback?code=fake")
+        assert missing.status_code == 400
+        assert "expired or is invalid" in missing.text
+
+        start = client.get("/auth/google", follow_redirects=False)
+        assert start.status_code == 302
+        forged = client.get("/auth/google/callback?state=forged&code=fake")
+        assert forged.status_code == 400
+        assert "fake" not in forged.text
+
+
+def test_google_callback_links_existing_email_and_sets_session(monkeypatch, user_factory):
+    existing = user_factory(email="linked@example.com")
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "google-client-id.apps.googleusercontent.com")
+    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "google-client-secret")
+    reset_settings_cache()
+    web = _reload_web()
+
+    with TestClient(web.app) as client:
+        start = client.get("/auth/google", follow_redirects=False)
+        state = parse_qs(urlparse(start.headers["location"]).query)["state"][0]
+        packed = web._unpack_google_oauth(client.cookies.get("sellerdrafts_google_oauth"))
+        assert packed is not None
+        monkeypatch.setattr(
+            web,
+            "_google_token_claims",
+            lambda _code: {
+                "sub": "google-subject-123",
+                "email": "linked@example.com",
+                "email_verified": True,
+                "name": "Linked User",
+                "nonce": packed[1],
+            },
+        )
+        callback = client.get(
+            f"/auth/google/callback?state={state}&code=mock-code",
+            follow_redirects=False,
+        )
+
+    assert callback.status_code == 303
+    assert "truedraft_session" in callback.headers["set-cookie"]
+    with session_scope() as session:
+        users = session.query(User).filter_by(email="linked@example.com").all()
+        assert len(users) == 1
+        assert users[0].id == existing.id
+        assert users[0].google_subject == "google-subject-123"
 
 
 def test_logout_revokes_session_and_clears_cookie():
