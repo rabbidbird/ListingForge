@@ -50,7 +50,9 @@ http {
         listen ${PORT};
         server_name _;
         client_max_body_size 3m;
-        limit_req zone=truedraft_client_requests burst=60 nodelay;
+        # Streamlit's chunked frontend can request well over 60 static assets on
+        # first load. Keep the sustained rate at 20r/s while allowing startup.
+        limit_req zone=truedraft_client_requests burst=300 nodelay;
         limit_req zone=truedraft_global_requests burst=200 nodelay;
         limit_conn truedraft_client_connections 100;
         limit_conn truedraft_global_connections 200;
