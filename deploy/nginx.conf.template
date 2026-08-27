@@ -52,7 +52,7 @@ http {
         client_max_body_size 3m;
         limit_req zone=truedraft_client_requests burst=60 nodelay;
         limit_req zone=truedraft_global_requests burst=200 nodelay;
-        limit_conn truedraft_client_connections 20;
+        limit_conn truedraft_client_connections 100;
         limit_conn truedraft_global_connections 200;
         add_header X-Content-Type-Options "nosniff" always;
         add_header X-Frame-Options "SAMEORIGIN" always;
