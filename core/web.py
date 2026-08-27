@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import base64
-import hashlib
-import hmac
 import html
 import json
 import secrets
@@ -14,6 +12,9 @@ from collections import OrderedDict, deque
 from urllib.parse import urlencode, urlparse
 
 import requests
+from cryptography.fernet import Fernet, InvalidToken
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from google.auth.exceptions import GoogleAuthError
@@ -166,57 +167,40 @@ def _google_button() -> str:
 """
 
 
-def _oauth_digest(value: str) -> str:
-    return hashlib.sha256(value.encode()).hexdigest()
+def _google_oauth_cipher() -> Fernet:
+    key = HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=b"sellerdrafts-google-oauth-cookie-v1",
+        info=b"oauth-state-and-nonce",
+    ).derive(settings.session_secret.encode())
+    return Fernet(base64.urlsafe_b64encode(key))
 
 
 def _pack_google_oauth(state: str, nonce: str) -> str:
     payload = json.dumps(
-        {
-            "state_digest": _oauth_digest(state),
-            "nonce_digest": _oauth_digest(nonce),
-            "issued_at": int(time.time()),
-        },
+        {"state": state, "nonce": nonce},
         separators=(",", ":"),
     ).encode("utf-8")
-    encoded = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
-    signature = hmac.new(
-        settings.session_secret.encode("utf-8"),
-        f"google-oauth:{encoded}".encode(),
-        hashlib.sha256,
-    ).digest()
-    return f"{encoded}.{base64.urlsafe_b64encode(signature).decode('ascii').rstrip('=')}"
+    return _google_oauth_cipher().encrypt(payload).decode("ascii")
 
 
 def _unpack_google_oauth(value: str | None) -> tuple[str, str] | None:
     if not value or len(value) > 2048:
         return None
     try:
-        encoded, supplied_signature = value.split(".", 1)
-        expected_signature = hmac.new(
-            settings.session_secret.encode("utf-8"),
-            f"google-oauth:{encoded}".encode(),
-            hashlib.sha256,
-        ).digest()
-        decoded_signature = base64.urlsafe_b64decode(
-            supplied_signature + "=" * (-len(supplied_signature) % 4)
-        )
-        if not hmac.compare_digest(decoded_signature, expected_signature):
-            return None
         payload = json.loads(
-            base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)).decode("utf-8")
+            _google_oauth_cipher()
+            .decrypt(value.encode("ascii"), ttl=_GOOGLE_OAUTH_MAX_AGE)
+            .decode("utf-8")
         )
-        state_digest = payload["state_digest"]
-        nonce_digest = payload["nonce_digest"]
-        issued_at = int(payload["issued_at"])
-    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        state = payload["state"]
+        nonce = payload["nonce"]
+    except (InvalidToken, KeyError, TypeError, ValueError, json.JSONDecodeError):
         return None
-    now = int(time.time())
-    if not isinstance(state_digest, str) or not isinstance(nonce_digest, str):
+    if not isinstance(state, str) or not isinstance(nonce, str):
         return None
-    if issued_at > now + 60 or now - issued_at > _GOOGLE_OAUTH_MAX_AGE:
-        return None
-    return state_digest, nonce_digest
+    return state, nonce
 
 
 class _TimeoutSession(requests.Session):
@@ -411,7 +395,7 @@ def google_callback(request: Request):
     if (
         packed is None
         or not returned_state
-        or not secrets.compare_digest(packed[0], _oauth_digest(returned_state))
+        or not secrets.compare_digest(packed[0], returned_state)
     ):
         return _google_error("This Google sign-in request expired or is invalid.")
     if request.query_params.get("error"):
@@ -432,7 +416,7 @@ def google_callback(request: Request):
             or not isinstance(google_name, str)
             or claims.get("email_verified") is not True
             or not isinstance(returned_nonce, str)
-            or not secrets.compare_digest(packed[1], _oauth_digest(returned_nonce))
+            or not secrets.compare_digest(packed[1], returned_nonce)
         ):
             raise AuthError("Google sign-in could not be completed.")
         with session_scope() as session:
