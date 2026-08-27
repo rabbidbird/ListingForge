@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import html
+
 import streamlit as st
 
 from core.auth import streamlit_current_user
@@ -54,15 +56,22 @@ if portal_state == "return":
     )
 
 st.markdown("### Compare plans")
-columns = st.columns(4)
-for column, plan_name in zip(columns, ["free", "starter", "pro", "agency"], strict=True):
+plan_cards: list[str] = []
+for plan_name in ("free", "starter", "pro", "agency"):
     policy = PLANS[plan_name]
-    with column:
-        st.subheader(policy.name)
-        st.markdown(f"**{policy.display_price}**")
-        st.caption(PLAN_BLURBS[plan_name])
-        for line in plan_limit_lines(plan_name):
-            st.write(line)
+    limits = "".join(f"<li>{html.escape(line)}</li>" for line in plan_limit_lines(plan_name))
+    plan_cards.append(
+        '<article class="sd-pricing-card">'
+        f"<h3>{html.escape(policy.name)}</h3>"
+        f'<p class="sd-plan-price">{html.escape(policy.display_price)}</p>'
+        f'<p class="sd-plan-blurb">{html.escape(PLAN_BLURBS[plan_name])}</p>'
+        f'<ul class="sd-plan-limits">{limits}</ul>'
+        "</article>"
+    )
+st.markdown(
+    f'<section class="sd-pricing-grid">{"".join(plan_cards)}</section>',
+    unsafe_allow_html=True,
+)
 
 st.caption(
     "Limits are enforced per user in database transactions. Launch generation uses the "
