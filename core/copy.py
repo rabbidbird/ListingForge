@@ -54,8 +54,8 @@ POSITIONING = (
     ),
     (
         "Not unlimited",
-        "Every plan has documented daily, monthly, bulk, and LLM caps. Limits are "
-        "enforced per account.",
+        "Every plan has documented daily, monthly, and bulk caps. Limits are enforced "
+        "per account. LLM-assisted generation is unavailable at launch.",
     ),
 )
 
@@ -199,7 +199,7 @@ def plan_limit_lines(plan_key: str) -> list[str]:
         f"{policy.daily_generations:,} drafts / UTC day",
         f"{policy.monthly_generations:,} drafts / UTC month",
         f"{policy.bulk_rows_per_job:,} rows / bulk job",
-        f"{policy.daily_llm_generations:,} LLM attempts / UTC day",
+        "LLM-assisted generation unavailable at launch",
     ]
 
 

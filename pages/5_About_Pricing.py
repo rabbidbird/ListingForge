@@ -72,13 +72,13 @@ st.markdown(
 | Drafts / UTC day | 8 | 50 | 250 | 1,000 |
 | Drafts / UTC month | 40 | 1,000 | 5,000 | 25,000 |
 | Rows / bulk job | 5 | 25 | 100 | 250 |
-| LLM attempts / UTC day | 4 | 25 | 100 | 500 |
+| LLM-assisted generation | Unavailable at launch | Unavailable at launch | Unavailable at launch | Unavailable at launch |
 | Fact-lock + review export | Yes | Yes | Yes | Yes |
 """
 )
 st.caption(
-    "Limits are enforced per user in database transactions. LLM attempts can fall back to "
-    "template output when source-lock checks fail. Periods are UTC."
+    "Limits are enforced per user in database transactions. Launch generation uses the "
+    "fact-locked template path. Periods are UTC."
 )
 
 if user is None:

@@ -1,4 +1,4 @@
-"""Public v1 legal and trust pages with launch-blocking operator placeholders."""
+"""Public v1 legal and trust pages."""
 
 from __future__ import annotations
 
@@ -13,12 +13,11 @@ render_sidebar(streamlit_current_user())
 st.title("Legal and trust")
 st.write(
     "TrueDraft creates starting drafts from facts you supply. You are responsible for "
-    "every claim you publish. These pages still contain operator-identity placeholders "
-    "that must be replaced before paid public traffic."
+    "every claim you publish."
 )
-st.error(
-    "Launch blocker: replace {{OPERATOR_LEGAL_NAME}}, {{CONTACT_EMAIL}}, and "
-    "{{JURISDICTION}} everywhere on this page before accepting public customers."
+st.info(
+    "Operator note: the operator identity and jurisdiction below must be confirmed through "
+    "appropriate legal review before accepting public customers."
 )
 terms_tab, privacy_tab, use_tab = st.tabs(["Terms of Service", "Privacy Policy", "Acceptable Use"])
 
@@ -29,8 +28,8 @@ with terms_tab:
 
 **Effective date:** August 15, 2026
 
-**Operator:** {{OPERATOR_LEGAL_NAME}}
-**Contact:** {{CONTACT_EMAIL}}
+**Operator:** Jaylen Johnson
+**Contact:** jaylen.johnson0@gmail.com
 
 These Terms govern access to TrueDraft. By creating an account, you accept these Terms and the Privacy Policy. If you use TrueDraft for an organization, you confirm that you can bind that organization.
 
@@ -56,7 +55,7 @@ Plan quotas are enforced per account. Paid subscriptions are processed by Stripe
 
 ### 6. Your content and license
 
-You retain rights in information you submit and resulting drafts to the extent allowed by law. You grant {{OPERATOR_LEGAL_NAME}} a limited license to host, process, transmit, and back up that content only as needed to operate, secure, and support TrueDraft.
+You retain rights in information you submit and resulting drafts to the extent allowed by law. You grant Jaylen Johnson a limited license to host, process, transmit, and back up that content only as needed to operate, secure, and support TrueDraft.
 
 ### 7. Prohibited conduct
 
@@ -68,15 +67,15 @@ We may change or discontinue features and limits with reasonable notice where pr
 
 ### 9. Disclaimers and liability
 
-To the maximum extent permitted by law, TrueDraft is provided without implied warranties. {{OPERATOR_LEGAL_NAME}} is not responsible for marketplace rejection, account action, inaccurate user input, content you publish, lost profits, or indirect or consequential loss. Any aggregate liability is limited to the amount you paid for TrueDraft during the three months before the event giving rise to the claim, unless applicable law requires a different result.
+To the maximum extent permitted by law, TrueDraft is provided without implied warranties. Jaylen Johnson is not responsible for marketplace rejection, account action, inaccurate user input, content you publish, lost profits, or indirect or consequential loss. Any aggregate liability is limited to the amount you paid for TrueDraft during the three months before the event giving rise to the claim, unless applicable law requires a different result.
 
 ### 10. Governing law and disputes
 
-These Terms are governed by the laws of {{JURISDICTION}}, without regard to conflict-of-law rules. Courts located in {{JURISDICTION}} have exclusive jurisdiction except where consumer law requires otherwise.
+These Terms are governed by the laws of Ohio, United States, without regard to conflict-of-law rules. Courts located in Ohio, United States have exclusive jurisdiction except where consumer law requires otherwise.
 
 ### 11. Changes and contact
 
-Material updates will be posted with a new effective date. Questions or legal notices may be sent to {{CONTACT_EMAIL}}.
+Material updates will be posted with a new effective date. Questions or legal notices may be sent to jaylen.johnson0@gmail.com.
 """
     )
 
@@ -87,8 +86,8 @@ with privacy_tab:
 
 **Effective date:** August 15, 2026
 
-**Data controller/operator:** {{OPERATOR_LEGAL_NAME}}
-**Privacy contact:** {{CONTACT_EMAIL}}
+**Data controller/operator:** Jaylen Johnson
+**Privacy contact:** jaylen.johnson0@gmail.com
 
 ### 1. Information collected
 
@@ -123,7 +122,7 @@ Passwords are hashed with Argon2. Session tokens are random, stored as keyed has
 
 ### 7. Choices and rights
 
-Depending on your location, you may have rights to access, correct, export, delete, restrict, or object to processing of personal data, and to complain to a regulator. Send requests to {{CONTACT_EMAIL}}. Identity verification may be required. Some records can be retained where law or legitimate security needs require it.
+Depending on your location, you may have rights to access, correct, export, delete, restrict, or object to processing of personal data, and to complain to a regulator. Send requests to jaylen.johnson0@gmail.com. Identity verification may be required. Some records can be retained where law or legitimate security needs require it.
 
 ### 8. Children
 
@@ -131,7 +130,7 @@ TrueDraft is not directed to children under 13, or a higher minimum age required
 
 ### 9. Changes and contact
 
-Material changes will be posted with a revised effective date. Contact {{OPERATOR_LEGAL_NAME}} at {{CONTACT_EMAIL}}. The operator is established in {{JURISDICTION}}.
+Material changes will be posted with a revised effective date. Contact Jaylen Johnson at jaylen.johnson0@gmail.com. The operator is established in Ohio, United States.
 """
     )
 
@@ -154,7 +153,7 @@ You may not use TrueDraft to:
 - probe, scrape, overload, reverse engineer, disrupt, or introduce malicious code into the service;
 - use output as evidence of marketplace compliance, ranking likelihood, guaranteed sales, or professional legal/regulatory advice.
 
-{{OPERATOR_LEGAL_NAME}} may investigate suspected violations and suspend access where reasonably necessary to protect users, providers, or the service. Report abuse to {{CONTACT_EMAIL}}. Enforcement is subject to applicable law in {{JURISDICTION}}.
+Jaylen Johnson may investigate suspected violations and suspend access where reasonably necessary to protect users, providers, or the service. Report abuse to jaylen.johnson0@gmail.com. Enforcement is subject to applicable law in Ohio, United States.
 """
     )
 
