@@ -37,6 +37,8 @@ class User(Base):
     __table_args__ = (Index("uq_users_email_lower", func.lower(email), unique=True),)
     name: Mapped[str] = mapped_column(String(120))
     password_hash: Mapped[str] = mapped_column(String(255))
+    google_subject: Mapped[str | None] = mapped_column(String(255), unique=True, index=True)
+    google_email: Mapped[str | None] = mapped_column(String(320))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     terms_accepted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

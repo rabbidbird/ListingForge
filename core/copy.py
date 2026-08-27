@@ -11,8 +11,8 @@ from .plans import PLANS
 PRODUCT_NAME = "SellerDrafts"
 TAGLINE = "Fact-locked product listing drafts from facts you supply"
 PROMISE = (
-    "SellerDrafts writes titles, descriptions, and tags using only the product facts you enter. "
-    "Missing attributes stay missing."
+    "Etsy sellers can turn verified product facts into a structured title, description, and tags. "
+    "SellerDrafts uses only what you enter, so missing attributes stay missing."
 )
 HERO_SUPPORT = (
     "Create starting drafts for Etsy, Shopify, and Amazon-style marketplaces. "

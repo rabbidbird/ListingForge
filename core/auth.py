@@ -99,6 +99,66 @@ def register_user(
     return user
 
 
+def get_or_create_google_user(
+    session: Session,
+    *,
+    subject: str,
+    email: str,
+    name: str,
+) -> User:
+    """Link a verified Google identity by subject, falling back to normalized email."""
+    clean_subject = subject.strip()
+    if not clean_subject or len(clean_subject) > 255:
+        raise AuthError("Google sign-in could not be completed.")
+    normalized_email = normalize_email(email)
+    clean_name = " ".join(name.split())[:120] or normalized_email.split("@", 1)[0][:120]
+    now = utcnow()
+
+    user = session.scalar(select(User).where(User.google_subject == clean_subject))
+    if user is not None:
+        if not user.is_active:
+            raise AuthError("Google sign-in could not be completed.")
+        user.google_email = normalized_email
+        if user.email_verified_at is None:
+            user.email_verified_at = now
+        session.flush()
+        return user
+
+    user = session.scalar(select(User).where(User.email == normalized_email))
+    if user is not None:
+        if not user.is_active or (
+            user.google_subject is not None and user.google_subject != clean_subject
+        ):
+            raise AuthError("Google sign-in could not be completed.")
+        user.google_subject = clean_subject
+        user.google_email = normalized_email
+        user.email_verified_at = now
+        session.flush()
+        return user
+
+    user = User(
+        email=normalized_email,
+        name=clean_name,
+        # Google-only accounts do not have a usable local password. Store an
+        # unguessable hash so the existing non-null schema remains compatible.
+        password_hash=hash_password(secrets.token_urlsafe(48)),
+        google_subject=clean_subject,
+        google_email=normalized_email,
+        email_verified_at=now,
+        terms_accepted_at=now,
+        terms_version=TERMS_VERSION,
+    )
+    session.add(user)
+    try:
+        session.flush()
+    except IntegrityError as exc:
+        session.rollback()
+        raise AuthError("Google sign-in could not be completed.") from exc
+    session.add(Subscription(user_id=user.id, plan="free", status="free"))
+    session.flush()
+    return user
+
+
 def authenticate_user(session: Session, *, email: str, password: str) -> User | None:
     try:
         normalized_email = normalize_email(email)
@@ -202,5 +262,4 @@ def require_streamlit_user() -> User:
 def render_account_sidebar(user: User) -> None:
     import streamlit as st
 
-    st.sidebar.caption(f"Signed in as {user.email}")
-    st.sidebar.markdown("[Log out](/auth/logout)")
+    st.caption(f"Signed in as {user.email}")

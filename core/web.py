@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
+import hashlib
 import html
 import secrets
 import threading
 import time
 from collections import OrderedDict, deque
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
+import requests
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from google.auth.exceptions import GoogleAuthError
+from google.auth.transport.requests import Request as GoogleRequest
+from google.oauth2 import id_token as google_id_token
+from itsdangerous import BadData, URLSafeTimedSerializer
 from sqlalchemy import func, select
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
@@ -18,6 +24,7 @@ from .auth import (
     AuthError,
     authenticate_user,
     create_user_session,
+    get_or_create_google_user,
     get_user_by_session_token,
     register_user,
     revoke_user_session,
@@ -45,6 +52,7 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=_trusted_hosts(), www_re
 _AUTH_WINDOW_SECONDS = 600
 _AUTH_REQUESTS_PER_WINDOW = 40
 _AUTH_IP_BUCKET_LIMIT = 10_000
+_GOOGLE_OAUTH_MAX_AGE = 600
 _ip_requests: OrderedDict[str, deque[float]] = OrderedDict()
 _ip_lock = threading.Lock()
 
@@ -92,12 +100,15 @@ def _page(title: str, body: str) -> str:
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{html.escape(title)} | SellerDrafts</title>
 <style>
-body{{margin:0;background:#0f172a;color:#f1f5f9;font-family:system-ui,sans-serif}}
-main{{max-width:440px;margin:7vh auto;padding:2rem;background:#1e293b;border:1px solid #334155;border-radius:14px}}
-h1{{margin-top:0}}label{{display:block;margin:.9rem 0 .35rem}}input[type=text],input[type=email],input[type=password]{{box-sizing:border-box;width:100%;padding:.75rem;border:1px solid #64748b;border-radius:8px;background:#0f172a;color:#fff}}
-button{{width:100%;margin-top:1.2rem;padding:.8rem;border:0;border-radius:8px;background:#818cf8;color:#0f172a;font-weight:700;cursor:pointer}}
-a{{color:#a5b4fc}}.error{{padding:.75rem;background:#7f1d1d;border-radius:8px}}.note{{color:#cbd5e1;font-size:.9rem}}.check{{display:flex;gap:.6rem;align-items:flex-start;margin-top:1rem}}.check label{{margin:0}}
-</style></head><body><main><p><a href="/">← SellerDrafts</a></p>{body}</main></body></html>"""
+:root{{--ink:#f8fafc;--muted:#a9b7c9;--panel:#111c2e;--line:#26364c;--accent:#f4b860;--accent-dark:#152033}}
+*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;background:radial-gradient(circle at top,#162641 0,#0b1220 42%,#070c14 100%);color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.55}}
+.shell{{width:min(100% - 2rem,520px);margin:0 auto;padding:4vh 0 8vh}}.brand{{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem;color:var(--ink);text-decoration:none;font-weight:800;letter-spacing:-.02em}}.brand span{{display:inline-grid;place-items:center;width:2rem;height:2rem;margin-right:.6rem;border-radius:.65rem;background:var(--accent);color:#182235}}
+main{{padding:clamp(1.35rem,5vw,2.35rem);background:rgba(17,28,46,.96);border:1px solid var(--line);border-radius:1.25rem;box-shadow:0 24px 70px rgba(0,0,0,.32)}}
+h1{{margin:.1rem 0 .5rem;font-size:clamp(1.85rem,6vw,2.45rem);line-height:1.08;letter-spacing:-.04em}}p{{margin:.7rem 0}}label{{display:block;margin:1rem 0 .4rem;font-size:.9rem;font-weight:700}}input[type=text],input[type=email],input[type=password]{{width:100%;padding:.78rem .85rem;border:1px solid #3a4b63;border-radius:.7rem;background:#0b1422;color:#fff;font:inherit;outline:none}}input:focus{{border-color:var(--accent);box-shadow:0 0 0 3px rgba(244,184,96,.15)}}
+button,.button{{display:flex;align-items:center;justify-content:center;width:100%;min-height:46px;margin-top:1.1rem;padding:.72rem 1rem;border:1px solid transparent;border-radius:.72rem;background:var(--accent);color:#182235;font:inherit;font-weight:800;text-decoration:none;cursor:pointer}}button:hover,.button:hover{{filter:brightness(1.04)}}.google{{background:#fff;border-color:#747775;color:#1f1f1f;font-weight:700}}.divider{{display:flex;align-items:center;gap:.8rem;margin:1.25rem 0;color:#8494a9;font-size:.8rem;text-transform:uppercase;letter-spacing:.08em}}.divider:before,.divider:after{{content:"";height:1px;flex:1;background:var(--line)}}
+a{{color:#91c8ff}}.error{{padding:.8rem 1rem;background:#511d27;border:1px solid #8b3443;border-radius:.72rem}}.note{{color:var(--muted);font-size:.9rem}}.check{{display:flex;gap:.65rem;align-items:flex-start;margin-top:1rem}}.check input{{margin-top:.25rem}}.check label{{margin:0;font-weight:500}}.fine{{margin-top:.85rem;color:#8fa0b6;font-size:.78rem;text-align:center}}.account{{padding:1rem;border:1px solid var(--line);border-radius:.8rem;background:#0c1625}}
+@media (max-width:540px){{.shell{{width:min(100% - 1rem,520px);padding-top:.5rem}}main{{border-radius:1rem;padding:1.25rem}}}}
+</style></head><body><div class="shell"><a class="brand" href="/"><strong><span>S</span>SellerDrafts</strong><small>Fact-locked drafts</small></a><main>{body}</main></div></body></html>"""
 
 
 def _csrf_response(title: str, body_template: str, *, status_code: int = 200) -> HTMLResponse:
@@ -143,23 +154,105 @@ def _current_request_user(request: Request) -> User | None:
         return get_user_by_session_token(session, token)
 
 
+def _google_button() -> str:
+    if not settings.google_configured:
+        return ""
+    return """
+<a class="button google" href="/auth/google">Sign in with Google</a>
+<div class="divider">or use email</div>
+"""
+
+
+def _google_state_serializer() -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(
+        settings.session_secret,
+        salt="sellerdrafts-google-oauth-state-v1",
+        signer_kwargs={"digest_method": hashlib.sha256},
+    )
+
+
+def _pack_google_oauth(state: str, nonce: str) -> str:
+    return _google_state_serializer().dumps({"state": state, "nonce": nonce})
+
+
+def _unpack_google_oauth(value: str | None) -> tuple[str, str] | None:
+    if not value or len(value) > 2048:
+        return None
+    try:
+        payload = _google_state_serializer().loads(
+            value,
+            max_age=_GOOGLE_OAUTH_MAX_AGE,
+        )
+        state = payload["state"]
+        nonce = payload["nonce"]
+    except (BadData, KeyError, TypeError, ValueError):
+        return None
+    if not isinstance(state, str) or not isinstance(nonce, str):
+        return None
+    return state, nonce
+
+
+class _TimeoutSession(requests.Session):
+    def request(self, method, url, **kwargs):
+        kwargs.setdefault("timeout", 10)
+        return super().request(method, url, **kwargs)
+
+
+def _google_token_claims(code: str) -> dict[str, object]:
+    token_response = requests.post(
+        "https://oauth2.googleapis.com/token",
+        data={
+            "code": code,
+            "client_id": settings.google_client_id,
+            "client_secret": settings.google_client_secret,
+            "redirect_uri": settings.google_redirect_uri,
+            "grant_type": "authorization_code",
+        },
+        timeout=10,
+    )
+    token_response.raise_for_status()
+    token = token_response.json().get("id_token")
+    if not isinstance(token, str) or not token:
+        raise ValueError("Google did not return an ID token")
+    return google_id_token.verify_oauth2_token(
+        token,
+        GoogleRequest(session=_TimeoutSession()),
+        settings.google_client_id,
+    )
+
+
+def _google_error(message: str, *, status_code: int = 400) -> HTMLResponse:
+    return HTMLResponse(
+        _page(
+            "Google sign-in",
+            f'<h1>Google sign-in</h1><p class="error">{html.escape(message)}</p>'
+            '<p class="note"><a href="/auth/login">Return to sign in</a> or '
+            '<a href="/auth/signup">create an account with email</a>.</p>',
+        ),
+        status_code=status_code,
+    )
+
+
 LOGIN_FORM = """
 <h1>Sign in</h1>
-<p class="note">Fact-locked drafts from facts you supply. SellerDrafts does not publish to marketplaces or promise ranking.</p>
+<p class="note">Fact-locked drafts from facts you supply. Return to your private History and plan usage; SellerDrafts never publishes on your behalf.</p>
 {error}
+{google_button}
 <form method="post" action="/auth/login">
 <input type="hidden" name="csrf_token" value="{{CSRF}}">
 <label for="email">Email</label><input id="email" name="email" type="email" autocomplete="email" required value="{email}">
 <label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" maxlength="128" required>
 <button type="submit">Sign in</button>
 </form>
-<p class="note">New here? <a href="/auth/signup">Create an account</a>. <a href="/">Back to home</a>.</p>
+<p class="note">New here? <a href="/auth/signup">Create an account</a>.</p>
+{google_terms}
 """
 
 SIGNUP_FORM = """
 <h1>Create your account</h1>
-<p class="note">Fact-locked drafts from facts you supply. SellerDrafts does not publish to marketplaces or promise ranking.</p>
+<p class="note">Fact-locked drafts from facts you supply. SellerDrafts does not publish to marketplaces or promise rankings. Start Free, generate an Etsy-first draft, and find it later in private History.</p>
 {error}
+{google_button}
 <form method="post" action="/auth/signup">
 <input type="hidden" name="csrf_token" value="{{CSRF}}">
 <label for="name">Name</label><input id="name" name="name" type="text" autocomplete="name" maxlength="120" required value="{name}">
@@ -168,15 +261,47 @@ SIGNUP_FORM = """
 <div class="check"><input id="terms" name="accepted_terms" type="checkbox" value="true" required><label for="terms">I accept the <a href="/Legal" target="_blank">Terms of Service and Privacy Policy</a>.</label></div>
 <button type="submit">Create account</button>
 </form>
-<p class="note">Already registered? <a href="/auth/login">Sign in</a>. <a href="/">Back to home</a>.</p>
+<p class="note">Already registered? <a href="/auth/login">Sign in</a>.</p>
+{google_terms}
 """
+
+
+def _login_form(*, error: str = "", email: str = "") -> str:
+    google_terms = (
+        '<p class="fine">If Google creates a new SellerDrafts account, continuing means you '
+        'accept the <a href="/Legal" target="_blank">Terms of Service and Privacy Policy</a>.</p>'
+        if settings.google_configured
+        else ""
+    )
+    return LOGIN_FORM.format(
+        error=error,
+        email=email,
+        google_button=_google_button(),
+        google_terms=google_terms,
+    )
+
+
+def _signup_form(*, error: str = "", name: str = "", email: str = "") -> str:
+    google_terms = (
+        '<p class="fine">By continuing with Google, you accept the '
+        '<a href="/Legal" target="_blank">Terms of Service and Privacy Policy</a>.</p>'
+        if settings.google_configured
+        else ""
+    )
+    return SIGNUP_FORM.format(
+        error=error,
+        name=name,
+        email=email,
+        google_button=_google_button(),
+        google_terms=google_terms,
+    )
 
 
 @app.get("/auth/login", response_class=HTMLResponse)
 def login_page(request: Request):
     if _current_request_user(request):
         return RedirectResponse("/", status_code=303)
-    return _csrf_response("Sign in", LOGIN_FORM.format(error="", email=""))
+    return _csrf_response("Sign in", _login_form())
 
 
 @app.post("/auth/login")
@@ -189,7 +314,7 @@ def login(
     if not _valid_csrf(request, csrf_token):
         return _csrf_response(
             "Sign in",
-            LOGIN_FORM.format(
+            _login_form(
                 error='<p class="error">This form expired. Please try again.</p>',
                 email=html.escape(email, quote=True),
             ),
@@ -204,7 +329,7 @@ def login(
     except AuthError:
         return _csrf_response(
             "Sign in",
-            LOGIN_FORM.format(
+            _login_form(
                 error='<p class="error">Email or password is incorrect.</p>',
                 email=html.escape(email, quote=True),
             ),
@@ -215,11 +340,79 @@ def login(
     return response
 
 
+@app.get("/auth/google")
+def google_login(request: Request):
+    if not settings.google_configured:
+        return _google_error("Google sign-in is not configured.", status_code=404)
+    if _current_request_user(request):
+        return RedirectResponse("/", status_code=303)
+    nonce = secrets.token_urlsafe(32)
+    state = _pack_google_oauth(secrets.token_urlsafe(32), nonce)
+    authorization_url = "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(
+        {
+            "client_id": settings.google_client_id,
+            "redirect_uri": settings.google_redirect_uri,
+            "response_type": "code",
+            "scope": "openid email profile",
+            "state": state,
+            "nonce": nonce,
+            "access_type": "online",
+            "prompt": "select_account",
+        }
+    )
+    return RedirectResponse(authorization_url, status_code=302)
+
+
+@app.get("/auth/google/callback")
+def google_callback(request: Request):
+    if not settings.google_configured:
+        return _google_error("Google sign-in is not configured.", status_code=404)
+    returned_state = request.query_params.get("state", "")
+    packed = _unpack_google_oauth(returned_state)
+    if packed is None:
+        return _google_error("This Google sign-in request expired or is invalid.")
+    if request.query_params.get("error"):
+        return _google_error("Google sign-in was cancelled or could not be completed.")
+    code = request.query_params.get("code", "")
+    if not code or len(code) > 4096:
+        return _google_error("Google sign-in did not return a valid authorization code.")
+
+    try:
+        claims = _google_token_claims(code)
+        subject = claims.get("sub")
+        google_email = claims.get("email")
+        google_name = claims.get("name") or ""
+        returned_nonce = claims.get("nonce")
+        if (
+            not isinstance(subject, str)
+            or not isinstance(google_email, str)
+            or not isinstance(google_name, str)
+            or claims.get("email_verified") is not True
+            or not isinstance(returned_nonce, str)
+            or not secrets.compare_digest(packed[1], returned_nonce)
+        ):
+            raise AuthError("Google sign-in could not be completed.")
+        with session_scope() as session:
+            user = get_or_create_google_user(
+                session,
+                subject=subject,
+                email=google_email,
+                name=google_name,
+            )
+            token = create_user_session(session, user.id)
+    except (AuthError, GoogleAuthError, requests.RequestException, TypeError, ValueError):
+        return _google_error("Google sign-in could not be completed. Please try again.")
+
+    response = RedirectResponse("/", status_code=303)
+    _set_session_cookie(response, token)
+    return response
+
+
 @app.get("/auth/signup", response_class=HTMLResponse)
 def signup_page(request: Request):
     if _current_request_user(request):
         return RedirectResponse("/", status_code=303)
-    return _csrf_response("Create account", SIGNUP_FORM.format(error="", name="", email=""))
+    return _csrf_response("Create account", _signup_form())
 
 
 @app.post("/auth/signup")
@@ -236,7 +429,7 @@ def signup(
     if not _valid_csrf(request, csrf_token):
         return _csrf_response(
             "Create account",
-            SIGNUP_FORM.format(
+            _signup_form(
                 error='<p class="error">This form expired. Please try again.</p>',
                 name=safe_name,
                 email=safe_email,
@@ -258,7 +451,7 @@ def signup(
     except AuthError:
         return _csrf_response(
             "Create account",
-            SIGNUP_FORM.format(
+            _signup_form(
                 error=(
                     '<p class="error">Account creation failed. Check the supplied '
                     "details or use a different email.</p>"
@@ -280,6 +473,22 @@ def signup(
     response = RedirectResponse("/", status_code=303)
     _set_session_cookie(response, token)
     return response
+
+
+@app.get("/auth/account", response_class=HTMLResponse)
+def account_page(request: Request):
+    user = _current_request_user(request)
+    if user is None:
+        return RedirectResponse("/auth/login", status_code=303)
+    provider = "Email and Google" if user.google_subject else "Email and password"
+    body = f"""
+<h1>Account</h1>
+<p class="note">Your drafts, usage, and billing entitlement stay attached to this account.</p>
+<div class="account"><strong>{html.escape(user.name)}</strong><br>{html.escape(user.email)}<br><span class="note">Sign-in method: {provider}</span></div>
+<a class="button" href="/">Return to SellerDrafts</a>
+<p class="note"><a href="/About_Pricing">Plans and billing</a> · <a href="/auth/logout">Log out</a></p>
+"""
+    return HTMLResponse(_page("Account", body))
 
 
 @app.get("/auth/logout", response_class=HTMLResponse)

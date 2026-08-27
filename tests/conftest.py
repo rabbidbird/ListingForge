@@ -18,6 +18,9 @@ def isolated_database(tmp_path, monkeypatch) -> Iterator[None]:
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{database_path.as_posix()}")
     monkeypatch.setenv("SESSION_SECRET", "test-session-secret-with-at-least-32-characters")
     monkeypatch.setenv("LLM_ENABLED", "false")
+    monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
+    monkeypatch.delenv("GOOGLE_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("GOOGLE_REDIRECT_URI", raising=False)
     reset_settings_cache()
     reset_engine()
     from core.database import get_engine

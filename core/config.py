@@ -84,6 +84,9 @@ class Settings:
     stripe_price_starter: str
     stripe_price_pro: str
     stripe_price_agency: str
+    google_client_id: str
+    google_client_secret: str
+    google_redirect_uri: str
 
     @property
     def is_production(self) -> bool:
@@ -96,6 +99,10 @@ class Settings:
     @property
     def stripe_fully_configured(self) -> bool:
         return self.stripe_configured and len(self.stripe_price_to_plan) == 3
+
+    @property
+    def google_configured(self) -> bool:
+        return bool(self.google_client_id and self.google_client_secret)
 
     @property
     def stripe_price_to_plan(self) -> dict[str, str]:
@@ -150,10 +157,11 @@ def get_settings() -> Settings:
     if environment == "production" and database_url.startswith("sqlite"):
         raise RuntimeError("SQLite is allowed only when ENV=development or ENV=test")
 
+    public_base_url = os.getenv("PUBLIC_BASE_URL", "http://localhost:8080").rstrip("/")
     settings = Settings(
         environment=environment,
         database_url=database_url,
-        public_base_url=os.getenv("PUBLIC_BASE_URL", "http://localhost:8080").rstrip("/"),
+        public_base_url=public_base_url,
         session_secret=os.getenv("SESSION_SECRET", DEFAULT_DEV_SESSION_SECRET),
         session_cookie_name=os.getenv("SESSION_COOKIE_NAME", "truedraft_session"),
         session_days=_as_int("SESSION_DAYS", 30),
@@ -168,6 +176,12 @@ def get_settings() -> Settings:
         stripe_price_starter=os.getenv("STRIPE_PRICE_STARTER", ""),
         stripe_price_pro=os.getenv("STRIPE_PRICE_PRO", ""),
         stripe_price_agency=os.getenv("STRIPE_PRICE_AGENCY", ""),
+        google_client_id=os.getenv("GOOGLE_CLIENT_ID", "").strip(),
+        google_client_secret=os.getenv("GOOGLE_CLIENT_SECRET", "").strip(),
+        google_redirect_uri=(
+            os.getenv("GOOGLE_REDIRECT_URI", "").strip()
+            or f"{public_base_url}/auth/google/callback"
+        ),
     )
     settings.validate_for_production()
     return settings

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import html
 import json
 import re
 import uuid
+from pathlib import Path
 from typing import Any
 
 import streamlit as st
@@ -31,13 +33,27 @@ from .models import User
 from .plans import PLANS
 from .usage import get_usage
 
+_STYLE_PATH = Path(__file__).resolve().parent.parent / "static" / "sellerdrafts.css"
+
 
 def configure_page(title: str, icon: str, *, browser_title: str | None = None) -> None:
     st.set_page_config(
         page_title=browser_title or f"{title} | {PRODUCT_NAME}",
         page_icon=icon,
         layout="wide",
-        initial_sidebar_state="expanded",
+        initial_sidebar_state="auto",
+    )
+    st.markdown(f"<style>{_STYLE_PATH.read_text(encoding='utf-8')}</style>", unsafe_allow_html=True)
+
+
+def _card_grid(items: list[tuple[str, str]], *, extra_class: str = "") -> None:
+    cards = "".join(
+        f'<article class="sd-card"><h3>{html.escape(title)}</h3><p>{html.escape(body)}</p></article>'
+        for title, body in items
+    )
+    st.markdown(
+        f'<section class="sd-grid {html.escape(extra_class)}">{cards}</section>',
+        unsafe_allow_html=True,
     )
 
 
@@ -74,33 +90,46 @@ def render_quota_notice(usage: dict[str, Any]) -> None:
 
 
 def render_sidebar(user: User | None = None) -> None:
+    if user is None:
+        st.markdown(
+            """
+<nav class="sd-topbar" aria-label="SellerDrafts">
+  <a class="sd-wordmark" href="/"><span>S</span>SellerDrafts</a>
+  <div><a href="/About_Pricing">Plans</a><a href="/Legal">Legal</a></div>
+</nav>
+""",
+            unsafe_allow_html=True,
+        )
+        return
+
     with st.sidebar:
-        st.markdown(f"## {PRODUCT_NAME}")
+        st.markdown(
+            f'<div class="sd-side-brand"><span>S</span>{PRODUCT_NAME}</div>', unsafe_allow_html=True
+        )
         st.caption(TAGLINE)
-        st.page_link("app.py", label="Home", icon="🏠")
-        st.page_link("pages/1_Optimizer.py", label="Single Draft", icon="✍️")
-        st.page_link("pages/2_Bulk_Processor.py", label="Bulk Drafts", icon="📦")
-        st.page_link("pages/3_SEO_Analyzer.py", label="Listing Checklist", icon="📋")
-        st.page_link("pages/4_History.py", label="History", icon="🕘")
-        st.page_link("pages/5_About_Pricing.py", label="Plans & Pricing", icon="💳")
-        st.page_link("pages/6_Legal.py", label="Legal", icon="📜")
+        st.page_link("app.py", label="Home")
+        st.page_link("pages/1_Optimizer.py", label="Single Draft")
+        st.page_link("pages/2_Bulk_Processor.py", label="Bulk")
+        st.page_link("pages/3_SEO_Analyzer.py", label="Checklist")
+        st.page_link("pages/4_History.py", label="History")
+        st.page_link("pages/5_About_Pricing.py", label="Plans")
+        st.page_link("pages/6_Legal.py", label="Legal")
+        st.markdown(
+            '<a class="sd-account-link" href="/auth/account">Account</a>', unsafe_allow_html=True
+        )
         st.divider()
-        if user is None:
-            st.caption("Home → Plans → Create account")
-            st.markdown("[Create account](/auth/signup) · [Sign in](/auth/login)")
-        else:
-            usage = get_usage(user.id)
-            st.caption(
-                f"{str(usage['plan']).title()} · {usage['daily']}/{usage['daily_limit']} today · "
-                f"{usage['monthly']}/{usage['monthly_limit']} this month (UTC)"
-            )
-            if usage.get("payment_failed"):
-                st.caption("Payment past due · Free limits")
-                st.page_link("pages/5_About_Pricing.py", label="Update billing", icon="💳")
-            elif not usage.get("can_generate"):
-                st.caption("Generation limit reached")
-                st.page_link("pages/5_About_Pricing.py", label="Upgrade plan", icon="💳")
-            render_account_sidebar(user)
+        usage = get_usage(user.id)
+        st.caption(
+            f"{str(usage['plan']).title()} · {usage['daily']}/{usage['daily_limit']} today · "
+            f"{usage['monthly']}/{usage['monthly_limit']} this month (UTC)"
+        )
+        if usage.get("payment_failed"):
+            st.caption("Payment past due · Free limits")
+            st.page_link("pages/5_About_Pricing.py", label="Update billing")
+        elif not usage.get("can_generate"):
+            st.caption("Generation limit reached")
+            st.page_link("pages/5_About_Pricing.py", label="Upgrade plan")
+        render_account_sidebar(user)
 
 
 def draft_banner() -> None:
@@ -111,53 +140,42 @@ def heuristic_notice() -> None:
     st.info(HEURISTIC_NOTICE)
 
 
-def render_public_ctas(*, include_plans: bool = True) -> None:
-    cols = st.columns([1, 1, 1, 1] if include_plans else [1, 1, 2])
-    cols[0].link_button("Create account", "/auth/signup", type="primary", use_container_width=True)
-    cols[1].link_button("Sign in", "/auth/login", use_container_width=True)
-    if include_plans:
-        with cols[2]:
-            st.page_link("pages/5_About_Pricing.py", label="View plans", icon="💳")
+def render_public_ctas(*, include_plans: bool = False) -> None:
+    plans = (
+        '<a class="sd-cta sd-cta-tertiary" href="/About_Pricing">View plans</a>'
+        if include_plans
+        else ""
+    )
+    st.markdown(
+        f"""
+<div class="sd-cta-row">
+  <a class="sd-cta sd-cta-primary" href="/auth/signup">Create account</a>
+  <a class="sd-cta sd-cta-secondary" href="/auth/login">Sign in</a>
+  {plans}
+</div>
+""",
+        unsafe_allow_html=True,
+    )
 
 
 def render_how_it_works() -> None:
     st.markdown("### How it works")
-    top = st.columns(2)
-    bottom = st.columns(2)
-    for column, (title, body) in zip([*top, *bottom], HOW_IT_WORKS, strict=True):
-        with column:
-            st.markdown(f"**{title}**")
-            st.write(body)
+    _card_grid(list(HOW_IT_WORKS))
 
 
 def render_feature_grid() -> None:
     st.markdown("### What you can do")
-    first = st.columns(3)
-    second = st.columns(2)
-    slots = [*first, *second]
-    for column, (title, body) in zip(slots, FEATURES, strict=True):
-        with column:
-            st.markdown(f"**{title}**")
-            st.write(body)
+    _card_grid(list(FEATURES))
 
 
 def render_trust_grid() -> None:
     st.markdown("### Why the drafts stay honest")
-    top = st.columns(2)
-    bottom = st.columns(2)
-    for column, (title, body) in zip([*top, *bottom], TRUST_POINTS, strict=True):
-        with column:
-            st.markdown(f"**{title}**")
-            st.write(body)
+    _card_grid(list(TRUST_POINTS))
 
 
 def render_positioning() -> None:
     st.markdown("### Honest positioning")
-    cols = st.columns(3)
-    for column, (title, body) in zip(cols, POSITIONING, strict=True):
-        with column:
-            st.markdown(f"**{title}**")
-            st.write(body)
+    _card_grid(list(POSITIONING))
 
 
 def render_claim_categories(*, expanded: bool = False) -> None:
@@ -174,16 +192,17 @@ def render_claim_categories(*, expanded: bool = False) -> None:
 def render_plan_teaser() -> None:
     st.markdown("### Plans at a glance")
     st.caption("Same generator on every plan. Paid plans raise documented quotas only.")
-    top = st.columns(2)
-    bottom = st.columns(2)
-    for column, key in zip([*top, *bottom], ["free", "starter", "pro", "agency"], strict=True):
+    items: list[tuple[str, str]] = []
+    for key in ("free", "starter", "pro", "agency"):
         policy = PLANS[key]
-        with column:
-            st.markdown(f"**{policy.name}** · {policy.display_price}")
-            st.caption(PLAN_BLURBS[key])
-            for line in plan_limit_lines(key):
-                st.write(line)
-    st.page_link("pages/5_About_Pricing.py", label="Compare plans and billing rules", icon="💳")
+        items.append(
+            (
+                f"{policy.name} · {policy.display_price}",
+                f"{PLAN_BLURBS[key]} {' · '.join(plan_limit_lines(key)[:3])}",
+            )
+        )
+    _card_grid(items, extra_class="sd-plan-grid")
+    st.page_link("pages/5_About_Pricing.py", label="Compare plans and billing rules")
 
 
 def render_export_reminder() -> None:
