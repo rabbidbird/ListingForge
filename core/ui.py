@@ -103,7 +103,9 @@ def render_sidebar(user: User | None = None) -> None:
         return
 
     with st.sidebar:
-        st.markdown(f'<div class="sd-side-brand"><span>S</span>{PRODUCT_NAME}</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="sd-side-brand"><span>S</span>{PRODUCT_NAME}</div>', unsafe_allow_html=True
+        )
         st.caption(TAGLINE)
         st.page_link("app.py", label="Home")
         st.page_link("pages/1_Optimizer.py", label="Single Draft")
@@ -112,7 +114,9 @@ def render_sidebar(user: User | None = None) -> None:
         st.page_link("pages/4_History.py", label="History")
         st.page_link("pages/5_About_Pricing.py", label="Plans")
         st.page_link("pages/6_Legal.py", label="Legal")
-        st.markdown('<a class="sd-account-link" href="/auth/account">Account</a>', unsafe_allow_html=True)
+        st.markdown(
+            '<a class="sd-account-link" href="/auth/account">Account</a>', unsafe_allow_html=True
+        )
         st.divider()
         usage = get_usage(user.id)
         st.caption(
@@ -137,7 +141,11 @@ def heuristic_notice() -> None:
 
 
 def render_public_ctas(*, include_plans: bool = False) -> None:
-    plans = '<a class="sd-cta sd-cta-tertiary" href="/About_Pricing">View plans</a>' if include_plans else ""
+    plans = (
+        '<a class="sd-cta sd-cta-tertiary" href="/About_Pricing">View plans</a>'
+        if include_plans
+        else ""
+    )
     st.markdown(
         f"""
 <div class="sd-cta-row">

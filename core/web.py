@@ -400,8 +400,10 @@ def google_callback(request: Request):
         return _google_error("Google sign-in is not configured.", status_code=404)
     packed = _unpack_google_oauth(request.cookies.get(_GOOGLE_OAUTH_COOKIE))
     returned_state = request.query_params.get("state", "")
-    if packed is None or not returned_state or not secrets.compare_digest(
-        packed[0], returned_state
+    if (
+        packed is None
+        or not returned_state
+        or not secrets.compare_digest(packed[0], returned_state)
     ):
         return _google_error("This Google sign-in request expired or is invalid.")
     if request.query_params.get("error"):
