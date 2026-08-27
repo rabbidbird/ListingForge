@@ -36,8 +36,7 @@ AUTH_PROMISE = (
     "marketplaces or promise ranking."
 )
 FOOTER_CAPTION = (
-    "SellerDrafts v1 · Output is always a starting draft · "
-    "See Legal for Terms and Privacy"
+    "SellerDrafts v1 · Output is always a starting draft · See Legal for Terms and Privacy"
 )
 
 POSITIONING = (
