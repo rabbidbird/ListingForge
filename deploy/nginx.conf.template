@@ -49,6 +49,9 @@ http {
     server {
         listen ${PORT};
         server_name _;
+        if ($host = www.sellerdrafts.com) {
+            return 308 https://sellerdrafts.com$request_uri;
+        }
         client_max_body_size 3m;
         # Streamlit's chunked frontend can request well over 60 static assets on
         # first load. Keep the sustained rate at 20r/s while allowing startup.
