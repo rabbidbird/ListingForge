@@ -194,10 +194,8 @@ def audit_unverified_claims(
                     }
                 )
     matches.sort(key=lambda item: (int(item["position"]), str(item["category"])))
-    return [
-        {"phrase": str(item["phrase"]), "category": str(item["category"])}
-        for item in matches
-    ]
+    return [{"phrase": str(item["phrase"]), "category": str(item["category"])} for item in matches]
+
 
 PLAN_BLURBS = {
     "free": "Same generator. Documented Free caps so you can try a real draft.",

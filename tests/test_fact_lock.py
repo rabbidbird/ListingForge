@@ -65,7 +65,7 @@ def test_blank_material_does_not_create_a_metal_claim():
         platform="etsy",
     )
 
-    output = f'{result["best_title"]} {result["description"]}'.lower()
+    output = f"{result['best_title']} {result['description']}".lower()
     for metal in ("sterling", "silver", "gold", "brass"):
         assert metal not in output
 

@@ -57,7 +57,7 @@ if submitted:
         if claim_matches:
             for match in claim_matches:
                 st.warning(
-                    f'“{match["phrase"]}” — {match["category"]}. '
+                    f"“{match['phrase']}” — {match['category']}. "
                     "Unverified in this paste — confirm against the physical product before "
                     "you keep this wording."
                 )
