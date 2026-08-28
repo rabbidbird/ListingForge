@@ -41,11 +41,12 @@ does not authorize paid acquisition for the unreviewed pilot.
 
 - **Severity:** Medium (resolved)
 - **Location:** `scripts/container_smoke.py`, `.github/workflows/ci.yml:59`
-- **Evidence:** CI provisions an internal fixture, proves public production
-  password registration fails closed, signs in that existing account through
-  nginx, checks the HttpOnly session, opens the Streamlit WebSocket, verifies
-  signed Stripe delivery and retry idempotency, logs out, and confirms the
-  session is no longer accepted.
+- **Evidence:** CI provisions an internal fixture, confirms that the signup
+  surface matches the stack environment, signs in that existing account
+  through nginx, checks the HttpOnly session, opens the Streamlit WebSocket,
+  verifies signed Stripe delivery and retry idempotency, logs out, and confirms
+  the session is no longer accepted. The auth suite separately proves that
+  production password registration fails closed.
 - **Impact before fix:** nginx routing, cookie forwarding, or WebSocket upgrades
   could regress while a simple `/healthz` poll remained green.
 - **Fix:** run the edge smoke inside the built Compose application after health.

@@ -128,7 +128,7 @@ python -m scripts.launch_check
 
 `python -m scripts.launch_check` is read-only. In `ENV=production` it exits 1 unless every public-traffic gate passes. It prints the next operator action and never prints secrets. Add `--strict` to fail in non-production environments as well.
 
-CI runs lint, migrations, the fact-lock/auth/usage/billing/CSV suite, an import smoke test, and a Docker/PostgreSQL edge smoke. The container smoke provisions an internal fixture, proves public production password signup is blocked, verifies existing-account login/session/logout through nginx, upgrades a Streamlit WebSocket, and checks signed/idempotent webhook delivery.
+CI runs lint, migrations, the fact-lock/auth/usage/billing/CSV suite, an import smoke test, and a Docker/PostgreSQL edge smoke. The auth suite proves production password signup is blocked. The container smoke provisions an internal fixture, verifies that the signup surface matches the stack environment, exercises existing-account login/session/logout through nginx, upgrades a Streamlit WebSocket, and checks signed/idempotent webhook delivery.
 
 The final repository security review and residual operator checks are recorded in [docs/SECURITY_REVIEW.md](docs/SECURITY_REVIEW.md). Vulnerabilities should be disclosed privately through [SECURITY.md](SECURITY.md), not a public issue.
 

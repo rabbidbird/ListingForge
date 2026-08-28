@@ -44,7 +44,7 @@ jobs:
     needs: test
     steps:
       - uses: actions/checkout@v7.0.1
-      - name: Build and start production-shaped stack
+      - name: Build and start PostgreSQL edge stack
         run: docker compose up --build --detach
       - name: Wait for HTTP health check
         shell: bash

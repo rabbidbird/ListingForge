@@ -14,6 +14,7 @@ import httpx
 from websockets.sync.client import connect
 
 from core.auth import register_user
+from core.config import get_settings
 from core.database import session_scope
 
 BASE_URL = os.getenv("CONTAINER_SMOKE_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
@@ -76,23 +77,30 @@ def main() -> None:
 
         signup_page = client.get("/auth/signup")
         _require(signup_page.status_code == 200, "Signup page is not reachable through nginx.")
-        _require(
-            'autocomplete="new-password"' not in signup_page.text,
-            "Production signup unexpectedly exposes a password-registration form.",
-        )
-        blocked_signup = client.post(
-            "/auth/signup",
-            data={
-                "csrf_token": "not-used-in-production",
-                "name": "Container Smoke",
-                "email": f"blocked-{email}",
-                "password": password,
-                "accepted_terms": "true",
-            },
-        )
-        _require(
-            blocked_signup.status_code == 403, "Production password signup did not fail closed."
-        )
+        if get_settings().password_signup_enabled:
+            _require(
+                'autocomplete="new-password"' in signup_page.text,
+                "Development signup unexpectedly hides password registration.",
+            )
+        else:
+            _require(
+                'autocomplete="new-password"' not in signup_page.text,
+                "Production signup unexpectedly exposes a password-registration form.",
+            )
+            blocked_signup = client.post(
+                "/auth/signup",
+                data={
+                    "csrf_token": "not-used-in-production",
+                    "name": "Container Smoke",
+                    "email": f"blocked-{email}",
+                    "password": password,
+                    "accepted_terms": "true",
+                },
+            )
+            _require(
+                blocked_signup.status_code == 403,
+                "Production password signup did not fail closed.",
+            )
 
         login_page = client.get("/auth/login")
         login = client.post(
