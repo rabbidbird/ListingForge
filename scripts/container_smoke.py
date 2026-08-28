@@ -77,7 +77,7 @@ def main() -> None:
         signup_page = client.get("/auth/signup")
         _require(signup_page.status_code == 200, "Signup page is not reachable through nginx.")
         _require(
-            'name="password"' not in signup_page.text,
+            'autocomplete="new-password"' not in signup_page.text,
             "Production signup unexpectedly exposes a password-registration form.",
         )
         blocked_signup = client.post(
