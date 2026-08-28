@@ -5,7 +5,7 @@ from __future__ import annotations
 import streamlit as st
 
 from core.auth import require_streamlit_user
-from core.copy import audit_unverified_claims
+from core.claims import audit_unverified_claims
 from core.seo_scorer import SEOScorer
 from core.ui import configure_page, draft_banner, heuristic_notice, render_sidebar
 
@@ -72,12 +72,12 @@ if submitted:
                 "a policy or accuracy certificate; review the physical product and current rules."
             )
 
-        st.subheader(f"Checklist: {overall['overall']}/100 · Grade {overall['grade']}")
+        st.subheader(f"Checklist status: {overall['status']}")
         st.caption(overall["summary"])
         one, two, three = st.columns(3)
-        one.metric("Title checklist", f"{title_result['score']}/100")
-        two.metric("Description checklist", f"{description_result['score']}/100")
-        three.metric("Tags checklist", f"{tags_result['score']}/100")
+        one.metric("Title status", title_result["status"])
+        two.metric("Description status", description_result["status"])
+        three.metric("Tags status", tags_result["status"])
         st.subheader("Review items")
         if overall["feedback"]:
             for item in overall["feedback"]:

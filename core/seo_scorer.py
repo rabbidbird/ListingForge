@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from collections import Counter
 
+from .claims import term_present_affirmatively
+
 TITLE_LIMITS = {"etsy": 140, "shopify": 70, "amazon": 75}
 RESTRICTED_OR_RISKY_TERMS = {
     "#1",
@@ -22,6 +24,16 @@ AMAZON_DISALLOWED_TITLE_CHARACTERS = set("!$?_{}^¬¦")
 
 
 class SEOScorer:
+    @staticmethod
+    def _status(score: int | float, feedback: list[str], *, has_risky_claim: bool = False) -> str:
+        if has_risky_claim:
+            return "Verify"
+        if not score:
+            return "Missing"
+        if score >= 85 and not feedback:
+            return "Pass"
+        return "Review"
+
     @staticmethod
     def score_title(title: str, primary_keyword: str, platform: str = "etsy") -> dict[str, object]:
         score = 0
@@ -65,7 +77,9 @@ class SEOScorer:
         else:
             score += 10
 
-        risky = [term for term in RESTRICTED_OR_RISKY_TERMS if term in title_lower]
+        risky = [
+            term for term in RESTRICTED_OR_RISKY_TERMS if term_present_affirmatively(title, term)
+        ]
         if risky:
             score -= 20
             feedback.append(
@@ -89,6 +103,9 @@ class SEOScorer:
             "limit": limit,
             "keyword_present": bool(keyword_lower and keyword_lower in title_lower),
             "heuristic_only": True,
+            "status": SEOScorer._status(
+                max(0, min(100, score)), feedback, has_risky_claim=bool(risky)
+            ),
         }
 
     @staticmethod
@@ -97,7 +114,7 @@ class SEOScorer:
         primary_keyword: str,
         secondary_keywords: list[str] | None = None,
         *,
-        require_draft_notice: bool = True,
+        require_draft_notice: bool = False,
     ) -> dict[str, object]:
         score = 0
         feedback: list[str] = []
@@ -113,7 +130,7 @@ class SEOScorer:
             if "draft" in lower and ("verify" in lower or "review" in lower):
                 score += 20
             else:
-                feedback.append("Keep the DRAFT and human-verification notice visible.")
+                feedback.append("Keep review guidance outside buyer-facing listing copy.")
 
         primary = primary_keyword.lower().strip() if primary_keyword else ""
         primary_count = lower.count(primary) if primary else 0
@@ -137,7 +154,11 @@ class SEOScorer:
         if secondary_keywords:
             score += round(5 * secondary_hits / len(secondary_keywords))
 
-        risky = [term for term in RESTRICTED_OR_RISKY_TERMS if term in lower]
+        risky = [
+            term
+            for term in RESTRICTED_OR_RISKY_TERMS
+            if term_present_affirmatively(description, term)
+        ]
         if risky:
             score -= 20
             feedback.append("Verify or remove restricted/risky claims: " + ", ".join(sorted(risky)))
@@ -148,6 +169,9 @@ class SEOScorer:
             "word_count": word_count,
             "primary_keyword_count": primary_count,
             "heuristic_only": True,
+            "status": SEOScorer._status(
+                max(0, min(100, score)), feedback, has_risky_claim=bool(risky)
+            ),
         }
 
     @staticmethod
@@ -189,6 +213,7 @@ class SEOScorer:
             "feedback": feedback,
             "count": len(tags),
             "heuristic_only": True,
+            "status": SEOScorer._status(max(0, min(100, score)), feedback),
         }
 
     @staticmethod
@@ -203,7 +228,6 @@ class SEOScorer:
             + float(tags_result["score"]) * 0.25,
             1,
         )
-        grade = "A" if overall >= 85 else "B" if overall >= 70 else "C" if overall >= 55 else "D"
         feedback = [
             *title_result["feedback"],
             *description_result["feedback"],
@@ -211,11 +235,41 @@ class SEOScorer:
         ]
         return {
             "overall": overall,
-            "grade": grade,
+            "grade": "A"
+            if overall >= 85
+            else "B"
+            if overall >= 70
+            else "C"
+            if overall >= 55
+            else "D",
             "title_score": title_result["score"],
             "description_score": description_result["score"],
             "tags_score": tags_result["score"],
             "feedback": feedback,
             "summary": "Heuristic checklist result only; it does not predict ranking, conversion, or sales.",
             "heuristic_only": True,
+            "status": (
+                "Verify"
+                if "Verify"
+                in {
+                    str(title_result.get("status")),
+                    str(description_result.get("status")),
+                    str(tags_result.get("status")),
+                }
+                else "Missing"
+                if "Missing"
+                in {
+                    str(title_result.get("status")),
+                    str(description_result.get("status")),
+                    str(tags_result.get("status")),
+                }
+                else "Pass"
+                if {
+                    str(title_result.get("status")),
+                    str(description_result.get("status")),
+                    str(tags_result.get("status")),
+                }
+                == {"Pass"}
+                else "Review"
+            ),
         }

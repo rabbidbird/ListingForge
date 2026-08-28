@@ -40,6 +40,23 @@ def test_no_invention_on_minimal_input():
     assert "DRAFT" in r["disclaimer"]
 
 
+def test_copyable_description_contains_only_buyer_facing_product_content():
+    result = ListingGenerator(use_llm=False).generate_full_listing(
+        product_name="Moon Pendant",
+        item_noun="necklace",
+        material="sterling silver",
+        platform="etsy",
+    )
+
+    description = result["description"].lower()
+    for internal_phrase in ("draft", "sellerdrafts", "you supplied", "verify", "human review"):
+        assert internal_phrase not in description
+    assert "material: sterling silver" in description
+    assert "DRAFT" in result["disclaimer"]
+    assert result["review_notes"]
+    assert result["missing_fact_prompts"]
+
+
 def test_supplied_facts_appear():
     g = ListingGenerator(use_llm=False)
     r = g.generate_full_listing(

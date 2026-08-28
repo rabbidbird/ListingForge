@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .claims import NEGATION_WORDS, term_present_affirmatively
 from .llm import generate_with_llm, is_llm_available, source_phrase_catalog
 from .seo_scorer import SEOScorer
 
@@ -132,45 +133,6 @@ PROHIBITED_UNLESS_SUPPLIED = {
     "5 star",
     "5-star",
 }
-
-# A prohibited term in a negative statement is not an affirmative product fact.
-# Keep the complete negative phrase, but never extract the term into a positive
-# title/tag/LLM claim (for example, "not waterproof" must not yield
-# "waterproof"). Punctuation starts a new clause so a negation does not leak
-# into an unrelated supplied fact.
-NEGATION_WORDS = frozenset(
-    {
-        "ain't",
-        "aint",
-        "aren't",
-        "arent",
-        "can't",
-        "cannot",
-        "cant",
-        "didn't",
-        "didnt",
-        "doesn't",
-        "doesnt",
-        "don't",
-        "dont",
-        "isn't",
-        "isnt",
-        "neither",
-        "never",
-        "no",
-        "non",
-        "nor",
-        "not",
-        "wasn't",
-        "wasnt",
-        "weren't",
-        "werent",
-        "without",
-        "won't",
-        "wont",
-    }
-)
-NEGATION_EXCEPTIONS = frozenset({"just", "merely", "only"})
 
 # Neutral connective vocabulary that an LLM may add without asserting a product fact.
 LLM_SAFE_GLUE_WORDS = {
@@ -359,26 +321,7 @@ class ListingGenerator:
 
     @staticmethod
     def _term_present_affirmatively(text: str, term: str) -> bool:
-        pattern = re.compile(rf"(?<!\w){re.escape(term)}(?!\w)", flags=re.IGNORECASE)
-        for match in pattern.finditer(text):
-            prefix = text[max(0, match.start() - 120) : match.start()].lower()
-            # Negation applies only inside the current clause.
-            clause_prefix = re.split(r"[\n.!?;,:]", prefix)[-1]
-            words = re.findall(r"[a-z]+(?:'[a-z]+)?", clause_prefix)[-6:]
-            negated = False
-            for index, word in enumerate(words):
-                if word not in NEGATION_WORDS:
-                    continue
-                following = words[index + 1 :]
-                if following and following[0] in NEGATION_EXCEPTIONS:
-                    continue
-                negated = True
-            suffix = text[match.end() : match.end() + 24].lower()
-            if re.match(r"^\s*(?:(?:[:=\-–—])\s*|\(\s*)?(?:false|no|none|not|0)\b", suffix):
-                negated = True
-            if not negated:
-                return True
-        return False
+        return term_present_affirmatively(text, term)
 
     def _contains_unsourced_claims(self, text: str, source_blob: str) -> list[str]:
         return sorted(
@@ -590,18 +533,17 @@ class ListingGenerator:
         del category
         del include_emoji
         product = product_name.strip()
-        keyword = (primary_keyword or product).strip()
         features = [feature.strip() for feature in (features or []) if feature.strip()]
         what_it_is = item_noun.strip() or product
-        lines = [f"DRAFT — {what_it_is}."]
+        lines = [f"{what_it_is}."]
         if item_noun and product.casefold() != item_noun.strip().casefold():
-            lines.append(f"Product name you supplied: {product}.")
+            lines.append(product + ".")
         supplied_details: list[tuple[str, str]] = [
             ("Color", color),
             ("Material", material),
             ("Size", size),
         ]
-        supplied_details.extend(("Verified detail", feature) for feature in features[:8])
+        supplied_details.extend(("Detail", feature) for feature in features[:8])
         supplied_details.extend(
             [
                 ("Occasion or recipient", occasion_or_recipient),
@@ -610,18 +552,8 @@ class ListingGenerator:
         )
         visible_details = [(label, value) for label, value in supplied_details if value.strip()]
         if visible_details:
-            lines.extend(["", "Facts you supplied:"])
+            lines.extend(["", "Details:"])
             lines.extend(f"• {label}: {value}" for label, value in visible_details)
-        if keyword and keyword.casefold() not in {product.casefold(), what_it_is.casefold()}:
-            lines.extend(["", f'Other phrase you supplied: "{keyword}".'])
-        lines.extend(
-            [
-                "",
-                "Verify every material, claim, and product detail against the actual item before publishing.",
-                "",
-                "— SellerDrafts starting draft; human review required.",
-            ]
-        )
         return "\n".join(lines).strip()
 
     @staticmethod
@@ -827,10 +759,25 @@ class ListingGenerator:
 
         title_score = self.scorer.score_title(best_title, primary_keyword or product_name, platform)
         description_score = self.scorer.score_description(
-            description, primary_keyword or product_name, extra_keywords
+            description, primary_keyword or product_name, extra_keywords, require_draft_notice=False
         )
         tags_score = self.scorer.score_tags(tags, primary_keyword or product_name, platform)
         overall = self.scorer.overall_score(title_score, description_score, tags_score)
+        review_notes = list(overall.get("feedback") or [])
+        if not review_notes:
+            review_notes.append(
+                "No structural warning was found; verify every factual claim and current marketplace rule."
+            )
+        missing_fact_prompts = [
+            f"{label} was left blank; add it only if you can verify it."
+            for label, value in (
+                ("Color", color),
+                ("Material", material),
+                ("Size", size),
+                ("Audience", audience),
+            )
+            if not value.strip()
+        ]
         return {
             "titles": titles,
             "best_title": best_title,
@@ -860,6 +807,8 @@ class ListingGenerator:
                 "llm_fact_lock_fallback": bool(fact_lock_rejections),
                 "llm_rejection_reasons": fact_lock_rejections,
             },
+            "review_notes": review_notes,
+            "missing_fact_prompts": missing_fact_prompts,
             "disclaimer": (
                 "DRAFT — verify before publishing. Confirm every material, claim, rating, "
                 "shipping statement, and product attribute against your actual product."

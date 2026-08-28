@@ -40,7 +40,8 @@ st.caption(
     f"{usage['monthly_remaining']} this month (UTC)."
 )
 render_quota_notice(usage)
-render_claim_categories()
+with st.expander("Claim categories", expanded=False):
+    render_claim_categories()
 
 llm_ready = is_llm_available()
 if llm_ready:
@@ -52,23 +53,25 @@ else:
     st.caption("Using the deterministic, fact-locked template engine.")
 
 with st.form("listing_form", clear_on_submit=False):
-    left, right = st.columns(2)
-    with left:
-        product_name = st.text_input(
-            "Product name *",
-            placeholder="e.g. Moon pendant necklace",
-            help="Use the plain, buyer-recognizable product name you already know.",
-            max_chars=300,
-        )
-        item_noun = st.text_input(
-            "What it is / item noun",
-            placeholder="e.g. necklace",
-            help=(
-                "Add this only when the product name does not already make the item type clear. "
-                "When supplied, it leads the Etsy title."
-            ),
-            max_chars=120,
-        )
+    product_name = st.text_input(
+        "Product name *",
+        placeholder="e.g. Moon pendant necklace",
+        help="Use the plain, buyer-recognizable product name you already know.",
+        max_chars=300,
+    )
+    item_noun = st.text_input(
+        "Item type",
+        placeholder="e.g. necklace",
+        help="Optional when the product name already makes the item type clear.",
+        max_chars=120,
+    )
+    features_raw = st.text_area(
+        "Verified product details (one per line, up to 8)",
+        help="Use only facts you can confirm. Unknown facts should stay blank.",
+        height=120,
+    )
+    platform = st.radio("Draft format", ["etsy", "shopify", "amazon"], horizontal=True)
+    with st.expander("Optional search and product details", expanded=False):
         primary_keyword = st.text_input(
             "Primary search phrase", placeholder="e.g. moon pendant necklace", max_chars=300
         )
@@ -77,30 +80,19 @@ with st.form("listing_form", clear_on_submit=False):
             ["jewelry", "home_decor", "apparel", "art_prints", "beauty", "digital", "default"],
             format_func=lambda value: value.replace("_", " ").title(),
         )
-        platform = st.radio("Draft format", ["etsy", "shopify", "amazon"], horizontal=True)
-    with right:
         color = st.text_input("Color (only if verified)", max_chars=120)
         material = st.text_input(
             "Material or metal (only if verified — leave blank if unsure)",
             max_chars=300,
         )
         size = st.text_input("Size or measurement (only if verified)", max_chars=120)
-        occasion_or_recipient = st.text_input(
-            "Occasion or recipient",
-            placeholder="e.g. birthday, gift for her",
-            help="Used in tags and the description, not forced into the title.",
-            max_chars=300,
-        )
+        occasion_or_recipient = st.text_input("Occasion or recipient", max_chars=300)
         audience = st.text_input("Audience (only if applicable)", max_chars=300)
-        features_raw = st.text_area(
-            "Verified product details (one per line, up to 8). Do not add claims you cannot prove.",
-            height=120,
-        )
         extra_keywords = st.text_input(
             "Additional supplied phrases (comma separated)", max_chars=500
         )
-        force_template = st.checkbox(
-            "Use deterministic template mode", value=not llm_ready, disabled=not llm_ready
+        force_template = (
+            st.checkbox("Use deterministic template mode", value=False) if llm_ready else True
         )
     submitted = st.form_submit_button(
         "Generate fact-locked draft",
@@ -146,6 +138,7 @@ if submitted:
 
 if st.session_state.pop("draft_created_notice", False):
     st.success("Draft created and saved to your private history.")
+    st.page_link("pages/4_History.py", label="Open private History")
 
 stored = st.session_state.get("latest_single_draft")
 if stored and stored.get("user_id") == str(user.id):
@@ -158,12 +151,12 @@ if stored and stored.get("user_id") == str(user.id):
         )
 
     overall = result["scores"]["overall"]
-    st.subheader(f"Checklist: {overall['overall']}/100 · Grade {overall['grade']}")
+    st.subheader(f"Checklist status: {overall['status']}")
     st.caption(overall["summary"])
     score_one, score_two, score_three = st.columns(3)
-    score_one.metric("Title checklist", f"{result['scores']['title']['score']}/100")
-    score_two.metric("Description checklist", f"{result['scores']['description']['score']}/100")
-    score_three.metric("Tags checklist", f"{result['scores']['tags']['score']}/100")
+    score_one.metric("Title status", result["scores"]["title"]["status"])
+    score_two.metric("Description status", result["scores"]["description"]["status"])
+    score_three.metric("Tags status", result["scores"]["tags"]["status"])
     heuristic_notice()
     render_export_reminder()
 
@@ -188,18 +181,14 @@ if stored and stored.get("user_id") == str(user.id):
     copy_button(tag_text, label="Copy tags")
     st.caption("Tags copy as one comma-separated line. Keep only phrases that fit the item.")
 
-    component_scores = (
-        result["scores"]["title"]["score"],
-        result["scores"]["description"]["score"],
-        result["scores"]["tags"]["score"],
-    )
-    with st.expander("Why these checklist scores?", expanded=min(component_scores) < 70):
-        feedback = overall.get("feedback") or []
-        if feedback:
-            for item in feedback:
-                st.markdown(f"- {item}")
-        else:
-            st.write("No checklist warnings. Human verification is still required.")
+    component_statuses = {
+        result["scores"][key]["status"] for key in ("title", "description", "tags")
+    }
+    with st.expander("Why this checklist status?", expanded=component_statuses != {"Pass"}):
+        for item in result.get("review_notes") or []:
+            st.markdown(f"- **Review:** {item}")
+        for item in result.get("missing_fact_prompts") or []:
+            st.markdown(f"- **Missing:** {item}")
 
     st.divider()
     confirmed = confirm_before_export(f"single_{listing_id}")

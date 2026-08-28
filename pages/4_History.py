@@ -35,10 +35,7 @@ if not history:
         st.switch_page("pages/1_Optimizer.py")
     st.stop()
 
-scores = [row["overall_score"] for row in history if row["overall_score"] is not None]
-first, second = st.columns(2)
-first.metric("Saved drafts shown", len(history))
-second.metric("Average checklist", f"{sum(scores) / len(scores):.1f}" if scores else "—")
+st.metric("Saved drafts shown", len(history))
 
 table = pd.DataFrame(
     [
@@ -46,8 +43,11 @@ table = pd.DataFrame(
             "Date": row["created_at"][:16].replace("T", " "),
             "Product": row["product_name"],
             "Platform": row["platform"],
-            "Checklist": row["overall_score"],
-            "Grade": row["grade"],
+            "Checklist status": "Pass"
+            if row["grade"] == "A"
+            else "Review"
+            if row["grade"] in {"B", "C"}
+            else "Missing",
             "Draft title": row["best_title"],
         }
         for row in history
