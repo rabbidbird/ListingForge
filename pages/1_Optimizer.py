@@ -133,7 +133,8 @@ if submitted:
             "listing_id": str(listing_id),
             "result": result,
         }
-        st.success("Draft created and saved to your private history.")
+        st.session_state["draft_created_notice"] = True
+        st.rerun()
     except UsageLimitError as exc:
         st.error(str(exc))
         if exc.code in {"daily_limit", "monthly_limit"}:
@@ -142,6 +143,9 @@ if submitted:
         st.error(str(exc))
     except Exception:
         st.error("The draft could not be generated. Your usage reservation was released.")
+
+if st.session_state.pop("draft_created_notice", False):
+    st.success("Draft created and saved to your private history.")
 
 stored = st.session_state.get("latest_single_draft")
 if stored and stored.get("user_id") == str(user.id):
@@ -184,7 +188,12 @@ if stored and stored.get("user_id") == str(user.id):
     copy_button(tag_text, label="Copy tags")
     st.caption("Tags copy as one comma-separated line. Keep only phrases that fit the item.")
 
-    with st.expander("Checklist feedback"):
+    component_scores = (
+        result["scores"]["title"]["score"],
+        result["scores"]["description"]["score"],
+        result["scores"]["tags"]["score"],
+    )
+    with st.expander("Why these checklist scores?", expanded=min(component_scores) < 70):
         feedback = overall.get("feedback") or []
         if feedback:
             for item in feedback:

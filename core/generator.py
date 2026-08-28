@@ -291,7 +291,23 @@ class ListingGenerator:
         descriptors: list[str],
         maximum: int,
     ) -> str:
-        base_phrases = [item_noun, product_name] if item_noun else [product_name]
+        product_keys = {
+            re.sub(r"[^\w]+", "", token, flags=re.UNICODE).casefold() or token.casefold()
+            for token in cls._clean_text(product_name).split()
+        }
+        noun_keys = {
+            re.sub(r"[^\w]+", "", token, flags=re.UNICODE).casefold() or token.casefold()
+            for token in cls._clean_text(item_noun).split()
+        }
+        # Sellers commonly repeat the item noun even when it is already part of the
+        # product name. Preserve their natural phrase order instead of moving that noun
+        # to the front ("Necklace Teardrop Pendant").
+        noun_already_in_product = bool(noun_keys) and noun_keys <= product_keys
+        base_phrases = (
+            [product_name]
+            if noun_already_in_product or not item_noun
+            else [item_noun, product_name]
+        )
         tokens = cls._unique_source_tokens(base_phrases)
         if len(tokens) > 14:
             tokens = tokens[:14]

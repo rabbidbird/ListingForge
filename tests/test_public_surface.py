@@ -29,6 +29,7 @@ from core.copy import (
 from core.database import session_scope
 from core.models import Listing, Subscription, User
 from core.plans import PLANS
+from core.seo_scorer import SEOScorer
 from scripts.acquisition_report import build_report
 from scripts.launch_check import remaining_legal_placeholders
 
@@ -114,6 +115,37 @@ def test_claim_audit_ignores_unconfigured_and_source_backed_phrases():
     assert matches == []
 
 
+def test_claim_audit_scoring_does_not_tell_sellers_to_publish_a_draft_notice():
+    result = SEOScorer.score_description(
+        "Hypoallergenic with free shipping.",
+        "",
+        require_draft_notice=False,
+    )
+
+    assert not any("DRAFT" in item for item in result["feedback"])
+
+
+def test_copy_controls_use_a_compact_post_copy_reminder(monkeypatch):
+    rendered: dict[str, object] = {}
+
+    def capture(markup: str, *, height: int) -> None:
+        rendered.update(markup=markup, height=height)
+
+    monkeypatch.setattr(core.ui.components, "html", capture)
+    core.ui.copy_button("Draft title", label="Copy title")
+
+    assert DRAFT_BANNER not in str(rendered["markup"])
+    assert "Copied — still a draft" in str(rendered["markup"])
+    assert rendered["height"] == 46
+
+
+def test_generated_output_code_wraps_on_narrow_screens():
+    css = Path("static/sellerdrafts.css").read_text(encoding="utf-8")
+
+    assert '[data-testid="stCode"] code' in css
+    assert "white-space: pre-wrap" in css
+
+
 def test_plan_limit_lines_match_enforced_metadata():
     free = plan_limit_lines("free")
     assert "8 drafts / UTC day" in free
@@ -167,8 +199,10 @@ def test_public_pricing_matches_backend_limits(monkeypatch):
         policy = PLANS[key]
         assert policy.name in text
         assert policy.display_price in text
-        for line in plan_limit_lines(key):
+        for line in plan_limit_lines(key)[:3]:
             assert line in text
+    assert "LLM-assisted generation unavailable at launch" not in text
+    assert "database transactions" not in text
     assert "Create a Free account" in text
     assert "none are marketed as unlimited" in text
     assert forbidden_claims_in(text) == []

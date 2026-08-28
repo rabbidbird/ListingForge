@@ -105,6 +105,22 @@ def test_short_etsy_inputs_produce_a_noun_led_title_under_fifteen_words():
     assert "adjustable chain" in result["tags"]
 
 
+def test_item_noun_already_in_product_name_keeps_the_supplied_phrase_order():
+    result = ListingGenerator(use_llm=False).generate_full_listing(
+        product_name="Teardrop pendant necklace",
+        item_noun="necklace",
+        primary_keyword="teardrop pendant necklace",
+        color="blue",
+        material="stainless steel",
+        size="18 inch",
+        platform="etsy",
+    )
+
+    assert result["best_title"].startswith("Teardrop Pendant Necklace")
+    assert not result["best_title"].startswith("Necklace Teardrop")
+    assert result["scores"]["title"]["score"] >= 90
+
+
 def test_supplied_compliance_terms_may_appear_when_sourced():
     g = ListingGenerator(use_llm=False)
     r = g.generate_full_listing(

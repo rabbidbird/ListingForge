@@ -96,6 +96,8 @@ class SEOScorer:
         description: str,
         primary_keyword: str,
         secondary_keywords: list[str] | None = None,
+        *,
+        require_draft_notice: bool = True,
     ) -> dict[str, object]:
         score = 0
         feedback: list[str] = []
@@ -107,10 +109,11 @@ class SEOScorer:
             score += 25
         else:
             feedback.append("Add more user-verified detail; the draft is currently brief.")
-        if "draft" in lower and ("verify" in lower or "review" in lower):
-            score += 20
-        else:
-            feedback.append("Keep the DRAFT and human-verification notice visible.")
+        if require_draft_notice:
+            if "draft" in lower and ("verify" in lower or "review" in lower):
+                score += 20
+            else:
+                feedback.append("Keep the DRAFT and human-verification notice visible.")
 
         primary = primary_keyword.lower().strip() if primary_keyword else ""
         primary_count = lower.count(primary) if primary else 0
