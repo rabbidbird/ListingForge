@@ -267,6 +267,73 @@ class ListingGenerator:
         )
 
     @staticmethod
+    def _unique_source_tokens(phrases: list[str]) -> list[str]:
+        """Keep supplied tokens in order while removing case-insensitive repeats."""
+
+        tokens: list[str] = []
+        seen: set[str] = set()
+        for phrase in phrases:
+            for token in ListingGenerator._clean_text(phrase).split():
+                key = re.sub(r"[^\w]+", "", token, flags=re.UNICODE).casefold()
+                key = key or token.casefold()
+                if key in seen:
+                    continue
+                seen.add(key)
+                tokens.append(token)
+        return tokens
+
+    @classmethod
+    def _etsy_noun_led_title(
+        cls,
+        *,
+        product_name: str,
+        item_noun: str,
+        descriptors: list[str],
+        maximum: int,
+    ) -> str:
+        base_phrases = [item_noun, product_name] if item_noun else [product_name]
+        tokens = cls._unique_source_tokens(base_phrases)
+        if len(tokens) > 14:
+            tokens = tokens[:14]
+        used = {
+            re.sub(r"[^\w]+", "", token, flags=re.UNICODE).casefold() or token.casefold()
+            for token in tokens
+        }
+        descriptors_added = 0
+        for descriptor in descriptors:
+            descriptor_tokens = []
+            for token in cls._unique_source_tokens([descriptor]):
+                key = re.sub(r"[^\w]+", "", token, flags=re.UNICODE).casefold()
+                key = key or token.casefold()
+                if key not in used:
+                    descriptor_tokens.append((token, key))
+            if not descriptor_tokens or len(tokens) + len(descriptor_tokens) > 14:
+                continue
+            candidate_tokens = tokens + [token for token, _key in descriptor_tokens]
+            candidate = cls._smart_title(" ".join(candidate_tokens))
+            if len(candidate) > maximum:
+                continue
+            tokens = candidate_tokens
+            used.update(key for _token, key in descriptor_tokens)
+            descriptors_added += 1
+            if descriptors_added >= 3:
+                break
+        title = cls._smart_title(" ".join(tokens))
+        return title if title and len(title) <= maximum else "DRAFT Product Listing"
+
+    @classmethod
+    def _phrase_used_in_title(cls, phrase: str, title: str) -> bool:
+        phrase_keys = {
+            re.sub(r"[^\w]+", "", token, flags=re.UNICODE).casefold() or token.casefold()
+            for token in cls._clean_text(phrase).split()
+        }
+        title_keys = {
+            re.sub(r"[^\w]+", "", token, flags=re.UNICODE).casefold() or token.casefold()
+            for token in cls._clean_text(title).split()
+        }
+        return bool(phrase_keys) and phrase_keys <= title_keys
+
+    @staticmethod
     def _source_blob(**fields: Any) -> str:
         parts: list[str] = []
         for value in fields.values():
@@ -452,11 +519,23 @@ class ListingGenerator:
         material: str = "",
         platform: str = "etsy",
         extra_keywords: list[str] | None = None,
+        item_noun: str = "",
+        color: str = "",
+        size: str = "",
+        features: list[str] | None = None,
     ) -> list[str]:
         del category
         product = product_name.strip()
         keyword = (primary_keyword or product).strip()
         extras = extra_keywords or []
+        if platform == "etsy":
+            title = self._etsy_noun_led_title(
+                product_name=product,
+                item_noun=item_noun.strip(),
+                descriptors=[color, material, size, *(features or [])],
+                maximum=PLATFORM_TITLE_LIMITS["etsy"],
+            )
+            return [title]
         variants = [keyword, product]
         if material:
             variants.append(f"{keyword} | {material}")
@@ -487,29 +566,38 @@ class ListingGenerator:
         material: str = "",
         audience: str = "",
         include_emoji: bool = True,
+        item_noun: str = "",
+        color: str = "",
+        size: str = "",
+        occasion_or_recipient: str = "",
     ) -> str:
         del category
+        del include_emoji
         product = product_name.strip()
         keyword = (primary_keyword or product).strip()
         features = [feature.strip() for feature in (features or []) if feature.strip()]
-        lines = [f"DRAFT — Introducing the {product}."]
-        if keyword.lower() != product.lower():
-            lines.append(f'User-supplied search term: "{keyword}".')
-        lines.append("")
-        if features:
-            lines.append("Details you provided:")
-            prefix = "•" if not include_emoji else "•"
-            lines.extend(f"{prefix} {feature}" for feature in features[:8])
-        else:
-            lines.append(
-                "Details you provided: none. Add product-specific facts before publishing."
-            )
-        if material or audience:
-            lines.extend(["", "Additional information you provided:"])
-            if material:
-                lines.append(f"• Material / attribute: {material}")
-            if audience:
-                lines.append(f"• Audience: {audience}")
+        what_it_is = item_noun.strip() or product
+        lines = [f"DRAFT — {what_it_is}."]
+        if item_noun and product.casefold() != item_noun.strip().casefold():
+            lines.append(f"Product name you supplied: {product}.")
+        supplied_details: list[tuple[str, str]] = [
+            ("Color", color),
+            ("Material", material),
+            ("Size", size),
+        ]
+        supplied_details.extend(("Verified detail", feature) for feature in features[:8])
+        supplied_details.extend(
+            [
+                ("Occasion or recipient", occasion_or_recipient),
+                ("Audience", audience),
+            ]
+        )
+        visible_details = [(label, value) for label, value in supplied_details if value.strip()]
+        if visible_details:
+            lines.extend(["", "Facts you supplied:"])
+            lines.extend(f"• {label}: {value}" for label, value in visible_details)
+        if keyword and keyword.casefold() not in {product.casefold(), what_it_is.casefold()}:
+            lines.extend(["", f'Other phrase you supplied: "{keyword}".'])
         lines.extend(
             [
                 "",
@@ -537,6 +625,12 @@ class ListingGenerator:
         extra_keywords: list[str] | None = None,
         platform: str = "etsy",
         max_tags: int = 13,
+        item_noun: str = "",
+        color: str = "",
+        size: str = "",
+        features: list[str] | None = None,
+        occasion_or_recipient: str = "",
+        title_text: str = "",
     ) -> list[str]:
         del category
         product = product_name.strip()
@@ -544,23 +638,33 @@ class ListingGenerator:
         candidates = [keyword]
         if product.lower() != keyword.lower():
             candidates.append(product)
-        if material:
-            candidates.extend([material, f"{material} {keyword}"])
-        if audience:
-            candidates.append(f"{keyword} for {audience}")
         candidates.extend(extra_keywords or [])
+        if occasion_or_recipient:
+            candidates.append(occasion_or_recipient)
+        if audience:
+            candidates.append(audience)
+        if item_noun and item_noun.casefold() not in {value.casefold() for value in candidates}:
+            candidates.append(item_noun)
+        for descriptor in [color, material, size, *(features or [])]:
+            if descriptor and not self._phrase_used_in_title(descriptor, title_text):
+                candidates.append(descriptor)
 
         source_blob = self._source_blob(
             product_name=product_name,
             primary_keyword=primary_keyword,
             material=material,
             audience=audience,
+            item_noun=item_noun,
+            color=color,
+            size=size,
+            features=features or [],
+            occasion_or_recipient=occasion_or_recipient,
             extra_keywords=extra_keywords or [],
         )
 
         # Source-grounded subphrases help fill available slots. Never extract a
         # shorter affirmative phrase from a supplied negative statement.
-        for phrase in [product, keyword, *(extra_keywords or [])]:
+        for phrase in [product, keyword]:
             phrase_words = {
                 word.casefold()
                 for word in re.findall(r"[a-z]+(?:'[a-z]+)?", phrase, flags=re.IGNORECASE)
@@ -571,7 +675,6 @@ class ListingGenerator:
                 continue
             words = phrase.split()
             candidates.extend(" ".join(words[index : index + 2]) for index in range(len(words) - 1))
-            candidates.extend(words)
 
         final: list[str] = []
         for candidate in candidates:
@@ -596,6 +699,10 @@ class ListingGenerator:
         platform: str = "etsy",
         tone: str = "professional",
         force_template: bool = False,
+        item_noun: str = "",
+        color: str = "",
+        size: str = "",
+        occasion_or_recipient: str = "",
     ) -> dict[str, Any]:
         del tone
         features = features or []
@@ -607,6 +714,10 @@ class ListingGenerator:
             audience=audience,
             features=features,
             extra_keywords=extra_keywords,
+            item_noun=item_noun,
+            color=color,
+            size=size,
+            occasion_or_recipient=occasion_or_recipient,
         )
         llm_result = None
         fact_lock_rejections: list[str] = []
@@ -650,30 +761,44 @@ class ListingGenerator:
             model = llm_result.get("meta", {}).get("model")
         else:
             titles = self.generate_title(
-                product_name,
-                primary_keyword,
-                category,
-                audience,
-                material,
-                platform,
-                extra_keywords,
+                product_name=product_name,
+                primary_keyword=primary_keyword,
+                category=category,
+                audience=audience,
+                material=material,
+                platform=platform,
+                extra_keywords=extra_keywords,
+                item_noun=item_noun,
+                color=color,
+                size=size,
+                features=features,
             )
             description = self.generate_description(
-                product_name,
-                primary_keyword,
-                features,
-                category,
-                material,
-                audience,
+                product_name=product_name,
+                primary_keyword=primary_keyword,
+                features=features,
+                category=category,
+                material=material,
+                audience=audience,
+                item_noun=item_noun,
+                color=color,
+                size=size,
+                occasion_or_recipient=occasion_or_recipient,
             )
             tags = self.generate_tags(
-                product_name,
-                primary_keyword,
-                category,
-                material,
-                audience,
-                extra_keywords,
-                platform,
+                product_name=product_name,
+                primary_keyword=primary_keyword,
+                category=category,
+                material=material,
+                audience=audience,
+                extra_keywords=extra_keywords,
+                platform=platform,
+                item_noun=item_noun,
+                color=color,
+                size=size,
+                features=features,
+                occasion_or_recipient=occasion_or_recipient,
+                title_text=titles[0],
             )
             best_title = titles[0]
             source = "template"
@@ -708,6 +833,10 @@ class ListingGenerator:
                 "category": self._normalize_category(category),
                 "material": material,
                 "audience": audience,
+                "item_noun": item_noun,
+                "color": color,
+                "size": size,
+                "occasion_or_recipient": occasion_or_recipient,
                 "source": source,
                 "model": model,
                 "is_draft": True,

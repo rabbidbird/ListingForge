@@ -47,4 +47,4 @@ def test_csv_export_neutralizes_spreadsheet_formula_prefixes():
     row = export_to_dataframe([result]).iloc[0]
     assert row["Product Name"].startswith("'=")
     assert row["Primary Keyword"].startswith("'@")
-    assert row["Best Title"].startswith("'@")
+    assert row["Best Title"].startswith("'=")

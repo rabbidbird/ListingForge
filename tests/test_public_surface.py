@@ -21,6 +21,7 @@ from core.copy import (
     PROMISE,
     TAGLINE,
     TRUST_POINTS,
+    audit_unverified_claims,
     forbidden_claims_in,
     plan_limit_lines,
     public_text_blob,
@@ -85,6 +86,32 @@ def test_copy_module_contains_no_false_claims():
     )
     assert forbidden_claims_in(blob) == []
     assert PRODUCT_NAME == "SellerDrafts"
+
+
+def test_claim_audit_flags_configured_unverified_phrases_by_category():
+    matches = audit_unverified_claims(
+        "Sterling earrings. Hypoallergenic. Free shipping. Bestseller.",
+        verified_source_text="earrings",
+    )
+    phrases = {match["phrase"].casefold() for match in matches}
+    categories = {match["category"] for match in matches}
+
+    assert {"sterling", "hypoallergenic", "free shipping", "bestseller"} <= phrases
+    assert {
+        "Materials and metals",
+        "Health and safety",
+        "Shipping and policy",
+        "Social proof and scarcity",
+    } <= categories
+
+
+def test_claim_audit_ignores_unconfigured_and_source_backed_phrases():
+    matches = audit_unverified_claims(
+        "Sterling earrings with a celestial pattern.",
+        verified_source_text="sterling",
+    )
+
+    assert matches == []
 
 
 def test_plan_limit_lines_match_enforced_metadata():
