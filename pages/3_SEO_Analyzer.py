@@ -49,7 +49,12 @@ if submitted:
         listing_text = "\n".join([title, description, *tags])
         claim_matches = audit_unverified_claims(listing_text, verified_source)
         title_result = scorer.score_title(title, primary_keyword, platform)
-        description_result = scorer.score_description(description, primary_keyword, secondary)
+        description_result = scorer.score_description(
+            description,
+            primary_keyword,
+            secondary,
+            require_draft_notice=False,
+        )
         tags_result = scorer.score_tags(tags, primary_keyword, platform)
         overall = scorer.overall_score(title_result, description_result, tags_result)
 

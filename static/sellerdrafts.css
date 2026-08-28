@@ -315,6 +315,13 @@ a {
   background: rgba(17, 28, 46, 0.82);
 }
 
+[data-testid="stCode"] pre,
+[data-testid="stCode"] code {
+  white-space: pre-wrap !important;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 [data-testid="stAlert"] {
   border-radius: 0.85rem;
 }

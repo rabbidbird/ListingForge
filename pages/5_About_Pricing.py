@@ -19,7 +19,6 @@ from core.plans import PAID_PLANS, PLANS
 from core.ui import (
     configure_page,
     draft_banner,
-    heuristic_notice,
     render_public_ctas,
     render_public_footer,
     render_quota_notice,
@@ -59,7 +58,7 @@ st.markdown("### Compare plans")
 plan_cards: list[str] = []
 for plan_name in ("free", "starter", "pro", "agency"):
     policy = PLANS[plan_name]
-    limits = "".join(f"<li>{html.escape(line)}</li>" for line in plan_limit_lines(plan_name))
+    limits = "".join(f"<li>{html.escape(line)}</li>" for line in plan_limit_lines(plan_name)[:3])
     plan_cards.append(
         '<article class="sd-pricing-card">'
         f"<h3>{html.escape(policy.name)}</h3>"
@@ -73,10 +72,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.caption(
-    "Limits are enforced per user in database transactions. Launch generation uses the "
-    "fact-locked template path. Periods are UTC."
-)
+st.caption("Limits apply to each account and reset on the documented UTC schedule.")
 
 if user is None:
     st.info("Create a Free account to generate drafts. Upgrade later from this page.")
@@ -148,14 +144,12 @@ else:
         st.caption("The billing portal appears after Stripe links a customer to this account.")
 
 st.divider()
-st.subheader("How billing state is applied")
+st.subheader("Billing basics")
 st.markdown(
-    "- Checkout uses Stripe-hosted subscription Checkout with dynamic payment methods.\n"
-    "- Signed, idempotent webhooks grant, change, or remove plan entitlements.\n"
-    "- Active and trialing subscriptions receive paid limits; other statuses fail closed to Free.\n"
-    "- Past-due or unpaid invoices keep Free limits until the invoice is paid in the portal.\n"
-    "- The Stripe-hosted Customer Portal handles payment methods, plan changes, and cancellation.\n"
-    "- Returning from Checkout or the portal does not itself change limits; the webhook does."
+    "- Stripe securely handles checkout and payment methods.\n"
+    "- Paid limits begin after Stripe confirms payment.\n"
+    "- Use the billing portal to change plans, update payment details, or cancel.\n"
+    "- If a subscription becomes inactive, Free limits apply."
 )
 st.subheader("Billing questions")
 st.markdown(
@@ -165,10 +159,5 @@ st.markdown(
     "start a second Checkout.\n"
     "- **Is any plan uncapped?** No. Every plan has a documented daily and monthly generation cap.\n"
     "- **Does upgrading change the generator?** No. Paid plans only raise quotas."
-)
-heuristic_notice()
-st.caption(
-    "Tax and refund obligations depend on the operator's registrations and jurisdiction; "
-    "SellerDrafts does not claim Stripe Tax is enabled automatically."
 )
 render_public_footer()

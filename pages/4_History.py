@@ -27,7 +27,7 @@ user = require_streamlit_user()
 render_sidebar(user)
 
 st.title("Private draft history")
-st.caption("Every query below is scoped server-side to your immutable user ID.")
+st.caption("Only you can view the drafts saved in this account.")
 history = get_history(user.id, limit=500)
 if not history:
     st.info("No saved drafts yet. Generate a starting draft from facts you can verify.")
@@ -56,7 +56,7 @@ table = pd.DataFrame(
 st.dataframe(table, use_container_width=True, hide_index=True)
 
 labels = {
-    row["id"]: f"{row['created_at'][:10]} · {row['product_name'][:70]} · {row['id'][:8]}"
+    row["id"]: (f"{row['created_at'][:16].replace('T', ' ')} UTC · {row['product_name'][:70]}")
     for row in history
 }
 selected_id = st.selectbox(
