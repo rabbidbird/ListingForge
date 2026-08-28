@@ -57,6 +57,54 @@ def test_supplied_facts_appear():
     assert r["meta"]["claim_warnings"] == []
 
 
+def test_blank_material_does_not_create_a_metal_claim():
+    result = ListingGenerator(use_llm=False).generate_full_listing(
+        product_name="Moon pendant necklace",
+        item_noun="necklace",
+        material="",
+        platform="etsy",
+    )
+
+    output = f'{result["best_title"]} {result["description"]}'.lower()
+    for metal in ("sterling", "silver", "gold", "brass"):
+        assert metal not in output
+
+
+def test_occasion_is_a_tag_and_description_fact_but_not_a_title_descriptor():
+    result = ListingGenerator(use_llm=False).generate_full_listing(
+        product_name="Moon pendant necklace",
+        item_noun="necklace",
+        color="blue",
+        material="glass",
+        occasion_or_recipient="birthday gift",
+        platform="etsy",
+    )
+
+    assert "birthday" not in result["best_title"].lower()
+    assert "gift" not in result["best_title"].lower()
+    assert "birthday gift" in result["tags"]
+    assert "birthday gift" in result["description"].lower()
+
+
+def test_short_etsy_inputs_produce_a_noun_led_title_under_fifteen_words():
+    result = ListingGenerator(use_llm=False).generate_full_listing(
+        product_name="Celestial moon",
+        item_noun="pendant necklace",
+        color="blue",
+        material="glass",
+        size="18 inch",
+        features=["adjustable chain"],
+        platform="etsy",
+    )
+
+    title_words = result["best_title"].split()
+    assert result["best_title"].lower().startswith("pendant necklace")
+    assert len(title_words) < 15
+    assert len({word.casefold() for word in title_words}) == len(title_words)
+    assert "adjustable" not in result["best_title"].lower()
+    assert "adjustable chain" in result["tags"]
+
+
 def test_supplied_compliance_terms_may_appear_when_sourced():
     g = ListingGenerator(use_llm=False)
     r = g.generate_full_listing(

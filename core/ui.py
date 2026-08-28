@@ -232,6 +232,7 @@ def copy_button(text: str, *, label: str = "Copy") -> None:
         f"""
 <button id="{element_id}" style="border:1px solid #64748b;border-radius:7px;padding:.45rem .8rem;background:#1e293b;color:#f1f5f9;cursor:pointer">{label}</button>
 <span id="{element_id}-status" style="margin-left:.5rem;color:#94a3b8;font:13px system-ui"></span>
+<div style="margin-top:.35rem;color:#d8c99f;font:12px system-ui">{html.escape(DRAFT_BANNER)}</div>
 <script>
 const button = document.getElementById("{element_id}");
 button.addEventListener("click", async () => {{
@@ -241,7 +242,7 @@ button.addEventListener("click", async () => {{
 }});
 </script>
 """,
-        height=42,
+        height=64,
     )
 
 

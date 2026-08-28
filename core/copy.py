@@ -6,6 +6,8 @@ user-visible pages cannot drift into false claims or mixed naming.
 
 from __future__ import annotations
 
+import re
+
 from .plans import PLANS
 
 PRODUCT_NAME = "SellerDrafts"
@@ -157,6 +159,45 @@ CLAIM_CATEGORIES = (
         "bestseller, five-star, top-rated, limited stock, selling fast, only a few left",
     ),
 )
+
+
+def _claim_terms(examples: str) -> list[str]:
+    """Return the configured example phrases without creating another claim list."""
+
+    cleaned = examples.replace(", and similar substances", "")
+    return [term.strip() for term in cleaned.split(",") if term.strip()]
+
+
+def audit_unverified_claims(
+    listing_text: str, verified_source_text: str = ""
+) -> list[dict[str, str]]:
+    """Find configured claim phrases that are absent from the supplied source facts."""
+
+    source = str(verified_source_text or "")
+    matches: list[dict[str, str | int]] = []
+    seen: set[tuple[str, str]] = set()
+    for category, examples in CLAIM_CATEGORIES:
+        for phrase in sorted(_claim_terms(examples), key=len, reverse=True):
+            pattern = re.compile(rf"(?<!\w){re.escape(phrase)}(?!\w)", re.IGNORECASE)
+            if pattern.search(source):
+                continue
+            for match in pattern.finditer(str(listing_text or "")):
+                key = (category, match.group(0).casefold())
+                if key in seen:
+                    continue
+                seen.add(key)
+                matches.append(
+                    {
+                        "phrase": match.group(0),
+                        "category": category,
+                        "position": match.start(),
+                    }
+                )
+    matches.sort(key=lambda item: (int(item["position"]), str(item["category"])))
+    return [
+        {"phrase": str(item["phrase"]), "category": str(item["category"])}
+        for item in matches
+    ]
 
 PLAN_BLURBS = {
     "free": "Same generator. Documented Free caps so you can try a real draft.",

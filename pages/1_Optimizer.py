@@ -31,8 +31,8 @@ usage = get_usage(user.id)
 
 st.title("Single listing draft")
 st.caption(
-    "Supply only facts you can verify. SellerDrafts will not fill in a missing material, "
-    "certification, origin, rating, or shipping claim."
+    "Built for jewelry and other physical-goods sellers who already know the product facts "
+    "and do not want a model inventing a metal, handmade status, certification, or shipping claim."
 )
 draft_banner()
 st.caption(
@@ -55,7 +55,19 @@ with st.form("listing_form", clear_on_submit=False):
     left, right = st.columns(2)
     with left:
         product_name = st.text_input(
-            "Product name *", placeholder="e.g. Moon pendant", max_chars=300
+            "Product name *",
+            placeholder="e.g. Moon pendant necklace",
+            help="Use the plain, buyer-recognizable product name you already know.",
+            max_chars=300,
+        )
+        item_noun = st.text_input(
+            "What it is / item noun",
+            placeholder="e.g. necklace",
+            help=(
+                "Add this only when the product name does not already make the item type clear. "
+                "When supplied, it leads the Etsy title."
+            ),
+            max_chars=120,
         )
         primary_keyword = st.text_input(
             "Primary search phrase", placeholder="e.g. moon pendant necklace", max_chars=300
@@ -67,8 +79,16 @@ with st.form("listing_form", clear_on_submit=False):
         )
         platform = st.radio("Draft format", ["etsy", "shopify", "amazon"], horizontal=True)
     with right:
+        color = st.text_input("Color (only if verified)", max_chars=120)
         material = st.text_input(
-            "Material / attribute (only if verified — leave blank if unsure)",
+            "Material or metal (only if verified — leave blank if unsure)",
+            max_chars=300,
+        )
+        size = st.text_input("Size or measurement (only if verified)", max_chars=120)
+        occasion_or_recipient = st.text_input(
+            "Occasion or recipient",
+            placeholder="e.g. birthday, gift for her",
+            help="Used in tags and the description, not forced into the title.",
             max_chars=300,
         )
         audience = st.text_input("Audience (only if applicable)", max_chars=300)
@@ -92,9 +112,13 @@ with st.form("listing_form", clear_on_submit=False):
 if submitted:
     payload = {
         "product_name": product_name,
+        "item_noun": item_noun,
         "primary_keyword": primary_keyword,
         "category": category,
+        "color": color,
         "material": material,
+        "size": size,
+        "occasion_or_recipient": occasion_or_recipient,
         "audience": audience,
         "features": features_raw.splitlines(),
         "extra_keywords": extra_keywords.split(","),
@@ -139,7 +163,7 @@ if stored and stored.get("user_id") == str(user.id):
     heuristic_notice()
     render_export_reminder()
 
-    st.subheader("Title options")
+    st.subheader("Title draft" if len(result["titles"]) == 1 else "Title options")
     for index, title in enumerate(result["titles"], start=1):
         st.code(title, language=None)
         copy_button(title, label=f"Copy title {index}")
@@ -158,6 +182,7 @@ if stored and stored.get("user_id") == str(user.id):
     tag_text = ", ".join(result["tags"])
     st.code(tag_text, language=None)
     copy_button(tag_text, label="Copy tags")
+    st.caption("Tags copy as one comma-separated line. Keep only phrases that fit the item.")
 
     with st.expander("Checklist feedback"):
         feedback = overall.get("feedback") or []

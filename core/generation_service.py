@@ -33,6 +33,12 @@ def normalize_generation_input(data: dict[str, Any]) -> dict[str, Any]:
     category = _bounded(data.get("category", "default"), name="Category", maximum=80) or "default"
     material = _bounded(data.get("material"), name="Material / attribute", maximum=300)
     audience = _bounded(data.get("audience"), name="Audience", maximum=300)
+    item_noun = _bounded(data.get("item_noun"), name="Item noun", maximum=120)
+    color = _bounded(data.get("color"), name="Color", maximum=120)
+    size = _bounded(data.get("size"), name="Size", maximum=120)
+    occasion_or_recipient = _bounded(
+        data.get("occasion_or_recipient"), name="Occasion or recipient", maximum=300
+    )
     platform = clean_optional_text(data.get("platform", "etsy")).lower() or "etsy"
     if platform not in {"etsy", "shopify", "amazon"}:
         raise GenerationInputError("Platform must be Etsy, Shopify, or Amazon.")
@@ -59,6 +65,10 @@ def normalize_generation_input(data: dict[str, Any]) -> dict[str, Any]:
         "category": category,
         "material": material,
         "audience": audience,
+        "item_noun": item_noun,
+        "color": color,
+        "size": size,
+        "occasion_or_recipient": occasion_or_recipient,
         "features": features,
         "extra_keywords": extras,
         "platform": platform,
