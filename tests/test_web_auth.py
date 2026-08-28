@@ -291,7 +291,7 @@ def test_google_login_does_not_auto_link_existing_email(monkeypatch, user_factor
         )
 
     assert callback.status_code == 400
-    assert "link Google from your account settings" in callback.text
+    assert "link Google from Account" in callback.text
     assert "truedraft_session" not in callback.headers.get("set-cookie", "")
     with session_scope() as session:
         users = session.query(User).filter_by(email="linked@example.com").all()

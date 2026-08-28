@@ -143,19 +143,30 @@ def _plan_intent(value: str | None) -> str:
 
 
 def _intent_query(plan: str) -> str:
-    return f"?plan={plan}" if plan else ""
+    return {
+        "free": "?plan=free",
+        "starter": "?plan=starter",
+        "pro": "?plan=pro",
+        "agency": "?plan=agency",
+    }.get(plan, "")
 
 
 def _post_auth_target(user: User, plan: str = "") -> str:
     if user.terms_version != TERMS_VERSION:
-        next_path = "/app/About_Pricing" if plan in _PLAN_INTENTS - {"free"} else "/app/"
+        next_path = {
+            "starter": "/app/About_Pricing",
+            "pro": "/app/About_Pricing",
+            "agency": "/app/About_Pricing",
+        }.get(plan, "/app/")
         query = (
             urlencode({"next": next_path, "plan": plan}) if plan else urlencode({"next": next_path})
         )
         return f"/auth/terms?{query}"
-    if plan in _PLAN_INTENTS - {"free"}:
-        return f"/app/About_Pricing?plan={plan}"
-    return "/app/"
+    return {
+        "starter": "/app/About_Pricing?plan=starter",
+        "pro": "/app/About_Pricing?plan=pro",
+        "agency": "/app/About_Pricing?plan=agency",
+    }.get(plan, "/app/")
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -314,8 +325,9 @@ def _current_request_user(request: Request) -> User | None:
 def _google_button(plan: str = "") -> str:
     if not settings.google_configured:
         return ""
+    target = html.escape(f"/auth/google{_intent_query(plan)}", quote=True)
     return f"""
-<a class="button google" href="/auth/google{_intent_query(plan)}">Sign in with Google</a>
+<a class="button google" href="{target}">Sign in with Google</a>
 <div class="divider">or use email</div>
 """
 
@@ -648,8 +660,15 @@ def google_callback(request: Request):
                     ),
                 )
             token = create_user_session(session, user.id)
-    except AuthError as exc:
-        return _google_callback_error(str(exc))
+    except AuthError:
+        message = (
+            "Google could not be linked. Use the Google account with the same email, "
+            "or return to Account."
+            if packed["mode"] == "link"
+            else "Google sign-in could not be completed. If this email already has a "
+            "password account, sign in with password and link Google from Account."
+        )
+        return _google_callback_error(message)
     except (GoogleAuthError, requests.RequestException, TypeError, ValueError):
         return _google_callback_error("Google sign-in could not be completed. Please try again.")
 
@@ -703,12 +722,13 @@ def signup(
 ):
     plan = _plan_intent(plan)
     if not settings.password_signup_enabled:
+        signup_target = html.escape(f"/auth/signup{_intent_query(plan)}", quote=True)
         return HTMLResponse(
             _page(
                 "Create account",
                 '<h1>Email signup paused</h1><p class="error">New password accounts are '
                 "not available during the founding-seller pilot.</p>"
-                f'<p class="note"><a href="/auth/signup{_intent_query(plan)}">Use Google to create an account</a> '
+                f'<p class="note"><a href="{signup_target}">Use Google to create an account</a> '
                 'or <a href="/auth/login">sign in to an existing password account</a>.</p>',
             ),
             status_code=403,
@@ -819,7 +839,21 @@ def google_link(request: Request, csrf_token: str = Form(...)):
 
 
 def _safe_post_terms_target(value: str | None) -> str:
-    return value if value in {"/app/", "/app/About_Pricing", "/auth/account"} else "/app/"
+    return {
+        "/app/": "/app/",
+        "/app/About_Pricing": "/app/About_Pricing",
+        "/auth/account": "/auth/account",
+    }.get(value or "", "/app/")
+
+
+def _accepted_terms_target(next_path: str, plan: str) -> str:
+    if next_path != "/app/About_Pricing":
+        return _safe_post_terms_target(next_path)
+    return {
+        "starter": "/app/About_Pricing?plan=starter",
+        "pro": "/app/About_Pricing?plan=pro",
+        "agency": "/app/About_Pricing?plan=agency",
+    }.get(plan, "/app/About_Pricing")
 
 
 @app.get("/auth/terms", response_class=HTMLResponse)
@@ -830,10 +864,7 @@ def terms_acceptance_page(request: Request):
     next_path = _safe_post_terms_target(request.query_params.get("next"))
     plan = _plan_intent(request.query_params.get("plan"))
     if user.terms_version == TERMS_VERSION:
-        return RedirectResponse(
-            f"{next_path}?plan={plan}" if plan and next_path == "/app/About_Pricing" else next_path,
-            status_code=303,
-        )
+        return RedirectResponse(_accepted_terms_target(next_path, plan), status_code=303)
     body = f"""
 <h1>Review updated Terms</h1>
 <p class="note">SellerDrafts Terms version {html.escape(TERMS_VERSION)} applies before you continue to the workspace.</p>
@@ -877,8 +908,7 @@ def accept_current_terms(
             return RedirectResponse("/auth/login", status_code=303)
         stored.terms_version = TERMS_VERSION
         stored.terms_accepted_at = utcnow()
-    target = f"{next_path}?plan={plan}" if plan and next_path == "/app/About_Pricing" else next_path
-    return RedirectResponse(target, status_code=303)
+    return RedirectResponse(_accepted_terms_target(next_path, plan), status_code=303)
 
 
 @app.get("/auth/logout", response_class=HTMLResponse)
