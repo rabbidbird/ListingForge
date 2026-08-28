@@ -13,6 +13,9 @@ import uuid
 import httpx
 from websockets.sync.client import connect
 
+from core.auth import register_user
+from core.database import session_scope
+
 BASE_URL = os.getenv("CONTAINER_SMOKE_BASE_URL", "http://127.0.0.1:8080").rstrip("/")
 WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 
@@ -52,6 +55,17 @@ def _websocket_smoke(client: httpx.Client) -> None:
 
 
 def main() -> None:
+    email = f"container-smoke-{uuid.uuid4().hex}@example.com"
+    password = "container smoke password 2026"
+    with session_scope() as session:
+        register_user(
+            session,
+            email=email,
+            password=password,
+            name="Container Smoke",
+            accepted_terms=True,
+        )
+
     with httpx.Client(base_url=BASE_URL, follow_redirects=False, timeout=15) as client:
         health = client.get("/healthz")
         _require(health.status_code == 200, "Migrated database health check failed.")
@@ -62,19 +76,36 @@ def main() -> None:
 
         signup_page = client.get("/auth/signup")
         _require(signup_page.status_code == 200, "Signup page is not reachable through nginx.")
-        signup = client.post(
+        _require(
+            'name="password"' not in signup_page.text,
+            "Production signup unexpectedly exposes a password-registration form.",
+        )
+        blocked_signup = client.post(
             "/auth/signup",
             data={
-                "csrf_token": _csrf(signup_page.text),
+                "csrf_token": "not-used-in-production",
                 "name": "Container Smoke",
-                "email": f"container-smoke-{uuid.uuid4().hex}@example.com",
-                "password": "container smoke password 2026",
+                "email": f"blocked-{email}",
+                "password": password,
                 "accepted_terms": "true",
             },
         )
-        _require(signup.status_code == 303, "Signup did not create an authenticated session.")
-        set_cookie = signup.headers.get("set-cookie", "")
-        _require("truedraft_session=" in set_cookie, "Signup did not set a session cookie.")
+        _require(
+            blocked_signup.status_code == 403, "Production password signup did not fail closed."
+        )
+
+        login_page = client.get("/auth/login")
+        login = client.post(
+            "/auth/login",
+            data={
+                "csrf_token": _csrf(login_page.text),
+                "email": email,
+                "password": password,
+            },
+        )
+        _require(login.status_code == 303, "Existing password account could not sign in.")
+        set_cookie = login.headers.get("set-cookie", "")
+        _require("truedraft_session=" in set_cookie, "Login did not set a session cookie.")
         _require("HttpOnly" in set_cookie, "Session cookie is not HttpOnly.")
 
         authenticated_login = client.get("/auth/login")

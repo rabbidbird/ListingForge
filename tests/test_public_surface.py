@@ -9,6 +9,7 @@ from streamlit.testing.v1 import AppTest
 import core.auth
 import core.ui
 from core.billing import STRIPE_API_VERSION
+from core.claims import audit_unverified_claims as audit_polarity_aware_claims
 from core.copy import (
     AUTH_PROMISE,
     CLAIM_CATEGORIES,
@@ -27,6 +28,8 @@ from core.copy import (
     public_text_blob,
 )
 from core.database import session_scope
+from core.legal import CONTACT_EMAIL, OPERATOR_NAME, TERMS_EFFECTIVE_DATE, TERMS_VERSION
+from core.marketing import home_page, legal_page, pricing_page
 from core.models import Listing, Subscription, User
 from core.plans import PLANS
 from core.seo_scorer import SEOScorer
@@ -115,6 +118,12 @@ def test_claim_audit_ignores_unconfigured_and_source_backed_phrases():
     assert matches == []
 
 
+def test_polarity_aware_audit_does_not_treat_negative_source_or_listing_as_affirmative():
+    assert audit_polarity_aware_claims("Not sterling earrings.", "earrings") == []
+    matches = audit_polarity_aware_claims("Sterling earrings.", "not sterling")
+    assert {match["phrase"].casefold() for match in matches} == {"sterling"}
+
+
 def test_claim_audit_scoring_does_not_tell_sellers_to_publish_a_draft_notice():
     result = SEOScorer.score_description(
         "Hypoallergenic with free shipping.",
@@ -176,6 +185,36 @@ def test_public_home_converts_a_cold_visitor():
         assert "Sign in" in labels
 
 
+def test_server_rendered_home_uses_the_exact_cta_and_a_truthful_static_example():
+    page = home_page()
+
+    assert "<title>Etsy Listing Draft Generator | SellerDrafts</title>" in page
+    assert (
+        'name="description" content="Create a free Etsy draft from product facts you supply.'
+        in page
+    )
+    assert page.count(">Create a free Etsy draft</a>") >= 3
+    assert "Facts supplied:</strong> Blue cotton tote bag; item type: tote bag" in page
+    assert "Title draft:</strong> Blue Cotton Tote Bag 14-inch Handles" in page
+    assert "Description draft:</strong>" in page
+    assert "Tags:</strong> blue cotton tote bag" in page
+    assert "Review items:</strong>" in page
+    assert "Title options" not in page
+
+
+def test_server_rendered_pricing_keeps_all_plans_and_features_free_and_starter():
+    page = pricing_page()
+
+    for plan in ("Free", "Starter", "Pro", "Agency"):
+        assert f"<h2>{plan}</h2>" in page
+    assert page.count('class="price-card featured"') == 2
+    assert 'aria-label="Featured plan: Free"' in page
+    assert 'aria-label="Featured plan: Starter"' in page
+    assert 'href="/auth/signup?plan=free"' in page
+    assert 'href="/auth/signup?plan=starter"' in page
+    assert "LLM" not in page
+
+
 def test_logged_in_home_stays_a_product_home(monkeypatch, user_factory):
     user = user_factory()
     monkeypatch.setattr(core.auth, "streamlit_current_user", lambda: user)
@@ -208,14 +247,27 @@ def test_public_pricing_matches_backend_limits(monkeypatch):
     assert forbidden_claims_in(text) == []
 
 
+def test_authenticated_pricing_highlights_selected_plan(monkeypatch, user_factory):
+    user = user_factory()
+    monkeypatch.setattr(core.auth, "streamlit_current_user", lambda: user)
+    monkeypatch.setattr(core.ui, "render_sidebar", lambda _user=None: None)
+    app = AppTest.from_file("pages/5_About_Pricing.py")
+    app.query_params["plan"] = "starter"
+    app.run(timeout=15)
+    assert not app.exception
+    assert "You selected Starter — $12/month" in _visible_text(app)
+
+
 def test_legal_operator_details_are_complete(monkeypatch):
     assert remaining_legal_placeholders() == []
     monkeypatch.setattr(core.ui, "render_sidebar", lambda _user=None: None)
     app = AppTest.from_file("pages/6_Legal.py").run(timeout=15)
     assert not app.exception
     text = _visible_text(app)
-    assert "Johnson Solutions LLC, doing business as SellerDrafts" in text
-    assert "jaylen.johnson0@gmail.com" in text
+    assert OPERATOR_NAME in text
+    assert CONTACT_EMAIL in legal_page()
+    assert TERMS_EFFECTIVE_DATE in text
+    assert TERMS_VERSION in text
     assert "Ohio, United States" in text
     assert "starting drafts" in text.lower() or "starting draft" in text.lower()
 
@@ -299,7 +351,7 @@ def test_acquisition_report_returns_aggregate_outcomes_only(user_factory):
         "source": "x",
         "campaign": "launch",
         "signups": 1,
-        "first_drafts": 1,
+        "users_with_draft": 1,
         "active_paid": 1,
     }
     assert "email" not in row

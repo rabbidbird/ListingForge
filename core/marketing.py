@@ -8,6 +8,15 @@ from dataclasses import dataclass
 
 from .config import get_settings
 from .copy import DRAFT_BANNER, PLAN_BLURBS, PRODUCT_NAME, plan_limit_lines
+from .generator import ListingGenerator
+from .legal import (
+    ACCEPTABLE_USE_MARKDOWN,
+    CONTACT_EMAIL,
+    OPERATOR_NAME,
+    PRIVACY_MARKDOWN,
+    TERMS_MARKDOWN,
+    markdown_to_safe_html,
+)
 from .plans import PLANS
 
 PUBLIC_PATHS = (
@@ -176,37 +185,52 @@ def _page(
 <div class="nav-links"><a href="/guides/etsy-listing-draft-checklist">Guides</a><a href="/pricing">Plans</a><a href="/legal">Legal</a><a class="signin" href="/auth/login">Sign in</a></div>
 </nav></header>
 <main id="main">{body}</main>
-<footer><div><a class="wordmark footer-mark" href="/"><span>S</span>SellerDrafts</a><p>Fact-locked starting drafts from facts you supply.</p></div><nav aria-label="Footer"><a href="/pricing">Plans</a><a href="/legal">Legal</a><a href="/auth/signup">Create account</a></nav><p class="fine-print">SellerDrafts is operated by Johnson Solutions LLC and is not affiliated with Etsy, Shopify, or Amazon.</p></footer>
+<footer><div><a class="wordmark footer-mark" href="/"><span>S</span>SellerDrafts</a><p>Fact-locked starting drafts from facts you supply.</p></div><nav aria-label="Footer"><a href="/pricing">Plans</a><a href="/legal">Legal</a><a href="/auth/signup">Create a free Etsy draft</a></nav><p class="fine-print">SellerDrafts is operated by Johnson Solutions LLC and is not affiliated with Etsy, Shopify, or Amazon.</p></footer>
 </body></html>"""
 
 
 def home_page() -> str:
     description = (
-        "Create fact-locked Etsy listing drafts from product details you supply. Draft titles, "
-        "descriptions, and tags without invented materials, claims, ratings, or shipping promises."
+        "Create a free Etsy draft from product facts you supply. Generate a title, description, "
+        "and tags without invented materials, claims, ratings, or shipping promises."
     )
+    example = ListingGenerator(use_llm=False).generate_full_listing(
+        product_name="Blue cotton tote bag",
+        item_noun="tote bag",
+        color="Blue",
+        material="cotton",
+        size="14-inch handles",
+        platform="etsy",
+        force_template=True,
+    )
+    example_tags = ", ".join(example["tags"])
+    example_reviews = example["scores"]["overall"].get("feedback") or [
+        "No structural warning in this fixture; the seller must still verify every fact."
+    ]
+    review_items = "".join(f"<li>{html.escape(item)}</li>" for item in example_reviews)
     body = f"""
 <section class="hero">
   <p class="eyebrow">Etsy-first listing workflow</p>
   <h1>Etsy listing drafts that stay inside the facts</h1>
   <p class="lede">Turn verified product facts into an Etsy title, description, and tags; Shopify and Amazon-style drafts are available too. Missing attributes stay missing, and SellerDrafts never publishes for you.</p>
   <div class="draft-warning"><strong>{html.escape(DRAFT_BANNER)}</strong></div>
-  <div class="actions"><a class="button primary" href="/auth/signup">Create account</a><a class="button secondary" href="/auth/login">Sign in</a></div>
-  <p class="path">Create account <span>→</span> template draft <span>→</span> private History</p>
+  <div class="actions"><a class="button primary" href="/auth/signup">Create a free Etsy draft</a><a class="button secondary" href="/auth/login">Sign in</a></div>
+  <p class="path">Create a free Etsy draft <span>→</span> template draft <span>→</span> private History</p>
 </section>
 <section><p class="eyebrow">How it works</p><h2>Structure the facts. Keep control of the listing.</h2>
 <div class="card-grid three"><article><span class="step">01</span><h3>Supply facts</h3><p>Enter the item name and only details you can verify.</p></article><article><span class="step">02</span><h3>Generate a draft</h3><p>SellerDrafts arranges supplied wording into marketplace-style fields.</p></article><article><span class="step">03</span><h3>Review before publishing</h3><p>Compare every claim with the real product and current marketplace rules.</p></article></div></section>
-<section class="split"><div><p class="eyebrow">Honesty is the feature</p><h2>No silent product facts</h2><p>Materials, certifications, origin, ratings, scarcity, and shipping promises appear only when you supply them. An incomplete draft is safer than confident misinformation.</p></div><div class="panel"><h3>What every draft includes</h3><ul><li>Title options built from supplied wording</li><li>A structured description and tags</li><li>A transparent heuristic checklist</li><li>A visible verification warning</li><li>Private account history</li></ul></div></section>
+<section class="split"><div><p class="eyebrow">Honesty is the feature</p><h2>No silent product facts</h2><p>Materials, certifications, origin, ratings, scarcity, and shipping promises appear only when you supply them. An incomplete draft is safer than confident misinformation.</p></div><div class="panel"><h3>What every draft includes</h3><ul><li>A title built from supplied wording</li><li>A structured description and tags</li><li>A transparent heuristic checklist</li><li>A visible verification warning</li><li>Private account history</li></ul></div></section>
+<section><p class="eyebrow">Generator example</p><h2>Verified facts → SellerDrafts result → Review items</h2><div class="panel"><p><strong>Facts supplied:</strong> Blue cotton tote bag; item type: tote bag; color: Blue; material: cotton; size: 14-inch handles.</p><p><strong>Title draft:</strong> {html.escape(example["best_title"])}</p><p><strong>Description draft:</strong></p><pre>{html.escape(example["description"])}</pre><p><strong>Tags:</strong> {html.escape(example_tags)}</p><p><strong>Review items:</strong></p><ul>{review_items}</ul><p class="fine-print">This fixture is rendered by the deterministic generator from only the facts shown above. It is not a real listing or a performance claim.</p></div></section>
 <section><p class="eyebrow">Learn before you publish</p><h2>Practical Etsy listing guides</h2><div class="card-grid three">
 <a class="guide-card" href="/guides/etsy-listing-draft-checklist"><h3>Draft checklist</h3><p>Review facts, claims, photos, and shop settings.</p><span>Read guide →</span></a>
 <a class="guide-card" href="/guides/write-etsy-listings-without-inventing-facts"><h3>Write without guessing</h3><p>Turn verified details into structure without adding promises.</p><span>Read guide →</span></a>
 <a class="guide-card" href="/guides/etsy-title-description-and-tags-checklist"><h3>Title, description, and tags</h3><p>Check clarity, accurate details, and current constraints.</p><span>Read guide →</span></a>
 </div></section>
-<section class="closing"><p class="eyebrow">Start Free</p><h2>Create one careful draft before choosing a plan.</h2><p>Free includes 8 drafts per UTC day and 40 per UTC month. Every plan uses the same fact-locked template generator.</p><div class="actions center"><a class="button primary" href="/auth/signup">Create account</a><a class="text-link" href="/pricing">Compare plans</a></div></section>
+<section class="closing"><p class="eyebrow">Start Free</p><h2>Create one careful draft before choosing a plan.</h2><p>Free includes 8 drafts per UTC day and 40 per UTC month. Every plan uses the same fact-locked template generator.</p><div class="actions center"><a class="button primary" href="/auth/signup">Create a free Etsy draft</a><a class="text-link" href="/pricing">Compare plans</a></div></section>
 """
     base = get_settings().public_base_url
     return _page(
-        title=PRODUCT_NAME,
+        title="Etsy Listing Draft Generator",
         description=description,
         canonical_path="/",
         body=body,
@@ -223,7 +247,7 @@ def home_page() -> str:
                 "name": "Johnson Solutions LLC",
                 "alternateName": PRODUCT_NAME,
                 "url": f"{base}/",
-                "email": "jaylen.johnson0@gmail.com",
+                "email": CONTACT_EMAIL,
             },
             {
                 "@type": "SoftwareApplication",
@@ -252,16 +276,28 @@ def pricing_page() -> str:
     for key in ("free", "starter", "pro", "agency"):
         plan = PLANS[key]
         limits = "".join(f"<li>{html.escape(line)}</li>" for line in plan_limit_lines(key)[:3])
+        featured = key in {"free", "starter"}
+        featured_label = (
+            f' aria-label="Featured plan: {html.escape(plan.name, quote=True)}"' if featured else ""
+        )
+        action_label = {
+            "free": "Create a free Etsy draft",
+            "starter": "Start Starter — $12/month",
+            "pro": "Choose Pro — $29/month",
+            "agency": "Choose Agency — $79/month",
+        }[key]
         cards.append(
-            f'<article class="price-card"><h2>{html.escape(plan.name)}</h2>'
+            f'<article class="price-card{" featured" if featured else ""}"'
+            f"{featured_label}"
+            f"><h2>{html.escape(plan.name)}</h2>"
             f'<p class="price">{html.escape(plan.display_price)}</p>'
             f"<p>{html.escape(PLAN_BLURBS[key])}</p><ul>{limits}</ul>"
-            f'<a class="button {"primary" if key == "starter" else "secondary"}" href="/auth/signup">Start {html.escape(plan.name)}</a></article>'
+            f'<a class="button {"primary" if featured else "secondary"}" href="/auth/signup?plan={key}">{action_label}</a></article>'
         )
     body = f"""
 <section class="page-hero"><p class="eyebrow">Simple, documented quotas</p><h1>Plans for careful listing work</h1><p class="lede">Every plan uses the same fact-locked template generator. Paid plans raise daily, monthly, and bulk limits; no plan changes the review requirement.</p><div class="draft-warning"><strong>{html.escape(DRAFT_BANNER)}</strong></div></section>
 <section class="pricing-grid">{"".join(cards)}</section>
-<section class="panel billing-note"><h2>Billing stays explicit</h2><ul><li>Free requires no Checkout or payment method.</li><li>Paid plans renew monthly through Stripe-hosted Checkout.</li><li>Signed webhooks apply entitlements; returning from Checkout alone does not change a plan.</li><li>Use the Stripe Customer Portal to update payment details or cancel.</li></ul><p>Checklist scores are heuristics only and do not predict ranking, conversion, or sales.</p></section>
+<section class="panel billing-note"><h2>Billing stays explicit</h2><ul><li>Free requires no Checkout or payment method.</li><li>Paid plans renew monthly through Stripe-hosted Checkout.</li><li>Signed webhooks apply entitlements; returning from Checkout alone does not change a plan.</li><li>Use the Stripe Customer Portal to update payment details or cancel.</li></ul><p>Checklist statuses are heuristics only and do not predict ranking, conversion, or sales.</p></section>
 """
     return _page(
         title="Plans and pricing",
@@ -275,33 +311,12 @@ def pricing_page() -> str:
 
 
 def legal_page() -> str:
-    body = """
-<section class="page-hero"><p class="eyebrow">Legal and trust</p><h1>Terms, privacy, and acceptable use</h1><p class="lede">SellerDrafts is operated by Johnson Solutions LLC, doing business as SellerDrafts, in Ohio, United States. Contact: <a href="mailto:jaylen.johnson0@gmail.com">jaylen.johnson0@gmail.com</a>.</p></section>
+    body = f"""
+<section class="page-hero"><p class="eyebrow">Legal and trust</p><h1>Terms, privacy, and acceptable use</h1><p class="lede">SellerDrafts is operated by {html.escape(OPERATOR_NAME)}. The current contact is shown in each policy below. Legal review remains an operator launch action.</p></section>
 <nav class="legal-index" aria-label="Legal sections"><a href="#terms">Terms</a><a href="#privacy">Privacy</a><a href="#acceptable-use">Acceptable Use</a></nav>
-<article class="legal-copy" id="terms"><p class="eyebrow">Effective August 27, 2026</p><h2>Terms of Service</h2>
-<p>These Terms govern access to SellerDrafts. By creating an account, you accept these Terms and the Privacy Policy. If you use SellerDrafts for an organization, you confirm that you can bind that organization.</p>
-<h3>1. Service and accounts</h3><p>SellerDrafts creates starting drafts of product listing text from information a user supplies. You must provide accurate registration information, protect your credentials, promptly report suspected account misuse, and not share an account to evade plan limits.</p>
-<h3>2. Draft output and user responsibility</h3><p>Every title, description, tag, and export is a <strong>DRAFT — verify before publishing</strong>. You are responsible for checking product facts, materials, dimensions, ratings, certifications, origin, intellectual-property rights, shipping statements, prices, marketplace eligibility, and every other claim. SellerDrafts does not publish to marketplaces for you.</p>
-<h3>3. Heuristic checklists</h3><p>Scores and grades are mechanical checklists only. They do not predict search placement, policy compliance, conversion, revenue, or sales. Marketplace rules and category limits can change, and you must confirm the rules that apply when you publish.</p>
-<h3>4. Optional LLM processing</h3><p>If the operator later enables an LLM integration, supplied prompts and product facts may be sent to the configured provider for processing. Source-lock checks can reject a response and use deterministic template output instead, but you must still review the draft. LLM mode is unavailable at launch.</p>
-<h3>5. Plans, payments, and cancellation</h3><p>Plan quotas are enforced per account. Paid subscriptions are processed by Stripe and renew until canceled. Prices, billing intervals, and taxes are shown at Checkout. You can manage or cancel through the Stripe Customer Portal. Except where required by law or expressly stated at Checkout, payments already made are non-refundable; cancellation stops future renewal and access remains governed by the status Stripe reports.</p>
-<h3>6. Your content and license</h3><p>You retain rights in submitted information and resulting drafts to the extent allowed by law. You grant Johnson Solutions LLC a limited license to host, process, transmit, and back up that content only as needed to operate, secure, and support SellerDrafts.</p>
-<h3>7. Prohibited conduct</h3><p>You must follow the Acceptable Use Policy. We may suspend or terminate access for material violations, fraud, security risk, nonpayment, or conduct that threatens the service or other users.</p>
-<h3>8. Service changes and availability</h3><p>We may change or discontinue features and limits with reasonable notice where practicable. The service is provided on an “as available” basis. No uptime, marketplace compatibility, or error-free operation is promised unless a separate written agreement says otherwise.</p>
-<h3>9. Disclaimers and liability</h3><p>To the maximum extent permitted by law, SellerDrafts is provided without implied warranties. Johnson Solutions LLC is not responsible for marketplace rejection, account action, inaccurate user input, content you publish, lost profits, or indirect or consequential loss. Aggregate liability is limited to the amount paid during the three months before the event giving rise to a claim, unless applicable law requires otherwise.</p>
-<h3>10. Governing law and disputes</h3><p>These Terms are governed by Ohio law, without regard to conflict-of-law rules. Courts located in Ohio, United States have exclusive jurisdiction except where consumer law requires otherwise.</p>
-<h3>11. Changes and contact</h3><p>Material updates will be posted with a new effective date. Questions or legal notices may be sent to <a href="mailto:jaylen.johnson0@gmail.com">jaylen.johnson0@gmail.com</a>.</p></article>
-<article class="legal-copy" id="privacy"><p class="eyebrow">Effective August 27, 2026</p><h2>Privacy Policy</h2>
-<h3>1. Information collected</h3><ul><li>Account data: email, name, password hash, Terms acceptance, verification status, and sessions.</li><li>Product content: facts, keywords, CSV inputs, drafts, and checklist results.</li><li>Usage and security data: generation events, plan enforcement, approximate authentication-route request source, timestamps, and logs.</li><li>Billing metadata: Stripe customer, subscription, Price, and status identifiers. SellerDrafts does not store full payment-card numbers.</li></ul>
-<h3>2. Why information is used</h3><p>Information is used to authenticate users, provide private History, generate requested content, enforce quotas, prevent abuse, process subscriptions, troubleshoot, secure the service, comply with law, and communicate about accounts.</p>
-<h3>3. Service providers</h3><p>Stripe processes Checkout, subscriptions, and the Customer Portal. Hosting and PostgreSQL providers store application data and backups. If LLM mode is later enabled, the configured provider may process prompts and supplied product facts under its own terms and retention settings. Providers receive only information reasonably needed for their role, and data may be processed in other countries subject to applicable safeguards.</p>
-<h3>4. Cookies and campaign attribution</h3><p>Essential HttpOnly cookies maintain sessions and protect authentication forms. When you arrive through a tagged campaign link, SellerDrafts may store a signed, first-party campaign cookie for up to 30 days containing limited source, medium, campaign, creative, search-term, and landing-path labels. If you create an account, those labels may be attached to it to measure aggregate signups, first drafts, and subscriptions. SellerDrafts does not install a TikTok or X advertising pixel in this version and does not use this cookie for cross-site tracking.</p>
-<h3>5. Retention</h3><p>Account, subscription, and saved-draft data is retained while needed to provide the service. Revoked sessions and security or usage records may be retained for fraud prevention, plan enforcement, legal obligations, and incident investigation. Billing records may be retained for tax and accounting obligations. Deletion requests remain subject to legal, security, backup, and recordkeeping requirements.</p>
-<h3>6. Security and isolation</h3><p>Passwords are hashed with Argon2. Session tokens are random, stored as keyed hashes, and sent in secure cookies. Listing reads, updates, deletes, and exports require the owning user ID. PostgreSQL transactions enforce generation entitlements. No security control eliminates all risk.</p>
-<h3>7. Choices and rights</h3><p>Depending on your location, you may have rights to access, correct, export, delete, restrict, or object to processing and to complain to a regulator. Contact <a href="mailto:jaylen.johnson0@gmail.com">jaylen.johnson0@gmail.com</a>. Identity verification may be required, and some records may be retained where law or legitimate security needs require it.</p>
-<h3>8. Children</h3><p>SellerDrafts is not directed to children under 13, or a higher minimum age required by local law. Do not create an account if you cannot legally consent to these terms.</p>
-<h3>9. Changes and contact</h3><p>Material changes will be posted with a revised effective date. Contact Johnson Solutions LLC at <a href="mailto:jaylen.johnson0@gmail.com">jaylen.johnson0@gmail.com</a>. The operator is established in Ohio, United States.</p></article>
-<article class="legal-copy" id="acceptable-use"><p class="eyebrow">Effective August 27, 2026</p><h2>Acceptable Use Policy</h2><p>You may not use SellerDrafts to:</p><ul><li>create or publish a claim you know is false, deceptive, unverified, or likely to mislead a buyer;</li><li>invent ratings, reviews, sales status, scarcity, certifications, origin, health claims, materials, shipping promises, or intellectual-property ownership;</li><li>list illegal, regulated, recalled, unsafe, counterfeit, stolen, or marketplace-prohibited goods;</li><li>infringe copyright, trademark, patent, privacy, publicity, or other rights;</li><li>submit unnecessary personal, confidential, payment-card, health, or authentication information;</li><li>access another user’s account, drafts, subscription, sessions, or usage records;</li><li>evade quotas, share credentials for quota avoidance, automate abusive signups, or bypass rate and upload limits;</li><li>probe, scrape, overload, reverse engineer, disrupt, or introduce malicious code into the service; or</li><li>use output as evidence of marketplace compliance, ranking likelihood, a sales guarantee, or professional legal or regulatory advice.</li></ul><p>Johnson Solutions LLC may investigate suspected violations and suspend access where reasonably necessary to protect users, providers, or the service. Report abuse to <a href="mailto:jaylen.johnson0@gmail.com">jaylen.johnson0@gmail.com</a>. Enforcement is subject to applicable law in Ohio, United States.</p></article>
+<article class="legal-copy" id="terms">{markdown_to_safe_html(TERMS_MARKDOWN)}</article>
+<article class="legal-copy" id="privacy">{markdown_to_safe_html(PRIVACY_MARKDOWN)}</article>
+<article class="legal-copy" id="acceptable-use">{markdown_to_safe_html(ACCEPTABLE_USE_MARKDOWN)}</article>
 """
     return _page(
         title="Legal and trust",

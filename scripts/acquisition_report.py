@@ -1,4 +1,4 @@
-"""Print aggregate acquisition outcomes without exposing account identifiers."""
+"""Print aggregate signups, users with a draft, and currently active paid users."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ def build_report(session: Session, *, since: datetime | None = None) -> list[dic
             source.label("source"),
             campaign.label("campaign"),
             func.count(User.id).label("signups"),
-            func.count(activated.c.user_id).label("first_drafts"),
+            func.count(activated.c.user_id).label("users_with_draft"),
             func.count(paid.c.user_id).label("active_paid"),
         )
         .outerjoin(activated, activated.c.user_id == User.id)
@@ -63,11 +63,11 @@ def main() -> None:
     args = parser.parse_args()
     with session_scope() as session:
         rows = build_report(session, since=args.since)
-    print("source\tcampaign\tsignups\tfirst_drafts\tactive_paid")
+    print("source\tcampaign\tsignups\tusers_with_draft\tactive_paid")
     for row in rows:
         print(
             f"{row['source']}\t{row['campaign']}\t{row['signups']}\t"
-            f"{row['first_drafts']}\t{row['active_paid']}"
+            f"{row['users_with_draft']}\t{row['active_paid']}"
         )
 
 

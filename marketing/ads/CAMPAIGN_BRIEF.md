@@ -1,6 +1,14 @@
 # SellerDrafts $300 paid-social test
 
-Status: prepared, not launched. Do not add a payment method or activate ads until the operator approves the final campaign in the advertising account.
+Status: paused for an unreviewed pilot. Do not add a payment method, activate ads, or intentionally send paid traffic until the explicit pilot gates below are complete and the operator approves the final campaign in the advertising account.
+
+## Pilot gates before activation
+
+- Confirm the deployed public home, signup, and first template-draft flow manually from a clean browser session.
+- Confirm support and privacy email aliases can receive and send a reply through their intended mailbox/channel; record only the pass/fail result, never message contents or credentials.
+- Complete the operator-owned legal/business review and confirm the published contact and privacy details are current. This is not represented as a legal review until it has actually occurred.
+- Review the current privacy disclosure, attribution behavior, budget, destination URLs, and platform policy in the advertising account.
+- Keep all ads paused if any gate is incomplete. A technical service being live does not by itself authorize this paid pilot.
 
 ## Platform decision
 
@@ -58,4 +66,4 @@ All are 9:16 vertical creatives. Review each platform preview before launch so i
 
 ## Measurement
 
-Use the application's attribution report as the source of truth for UTM visits, signups, checkout starts, and completed checkouts. Do not call a campaign profitable from clicks alone. With a $12 Starter price, the first test is for message and signup signal; a statistically reliable paid-acquisition conclusion will require more than a $300 sample.
+Use the application's attribution report as the source of truth for campaign-attributed signups, users with at least one draft, and currently active paid users. It does not measure visits, Checkout starts, or completed Checkouts. Do not call a campaign profitable from clicks alone. With a $12 Starter price, the first test is for message and signup signal; a statistically reliable paid-acquisition conclusion will require more than a $300 sample.

@@ -1,18 +1,18 @@
 # SellerDrafts
 
-SellerDrafts is a fact-locked **draft** listing generator for Etsy, Shopify, and Amazon-style marketplaces. It creates titles, descriptions, and tags only from product facts the user supplies. Every result remains a starting draft that requires human review.
+SellerDrafts is a fact-locked **draft** listing generator for Etsy, Shopify, and Amazon-style marketplaces. It creates a title, description, and tags only from product facts the user supplies. Every result remains a starting draft that requires human review.
 
 The repository name remains ListingForge. The public product and all current user-facing copy use SellerDrafts.
 
 ## Release status
 
-The v1 code path includes database accounts, per-user authorization, PostgreSQL migrations, transactional quotas, Stripe subscription webhooks, abuse controls, legal pages, a public marketing home, a non-root container, CI, and automated tests. It is not a live service until the operator completes [SHIP_CHECKLIST.md](SHIP_CHECKLIST.md).
+The technical service is live at `https://sellerdrafts.com`, with database accounts, per-user authorization, PostgreSQL migrations, transactional quotas, Stripe subscription webhooks, abuse controls, legal pages, a public marketing home, a non-root container, CI, and automated tests. It remains an unreviewed commercial pilot: do not intentionally promote it or activate paid acquisition until the separate pilot gates in [SHIP_CHECKLIST.md](SHIP_CHECKLIST.md) are completed. Changes on a feature branch are not live until reviewed, merged, and deployed.
 
 The paid SellerDrafts v1 path is now the canonical `main` branch. An earlier local SQLite / guest-identity demo line is retained only in Git history and must not be restored. See the completed [merge record](docs/MERGE_STRATEGY.md).
 
 The logged-out home is a conversion landing page (promise, how it works, trust, plan teaser). It does not invent testimonials, user counts, or marketplace-publish claims. Signed-in users still see plan/usage metrics and draft actions.
 
-SellerDrafts never promises ranking, conversion, or sales. Its scores are transparent heuristic checklists only.
+SellerDrafts never promises ranking, conversion, or sales. Its visible Pass/Review/Verify/Missing statuses are transparent heuristic checklist prompts only; legacy numeric fields remain internal for saved-record compatibility.
 The dated first-party sources and qualifications behind the small platform checklist are recorded in [docs/PLATFORM_RULES.md](docs/PLATFORM_RULES.md); users must verify current category rules before publishing.
 
 ## Safety invariants
@@ -40,7 +40,7 @@ No plan is unlimited.
 ## Architecture
 
 - Streamlit provides the authenticated product UI under `/app/`.
-- FastAPI owns crawlable public pages, signup/login/logout, HttpOnly session cookies, health checks, and Stripe webhooks.
+- FastAPI owns crawlable public pages, Google-backed production account creation, existing password-account login/logout, HttpOnly session cookies, health checks, and Stripe webhooks. Password registration remains available only in development and tests.
 - nginx exposes both processes on one origin and proxies Streamlit WebSockets.
 - SQLAlchemy and Alembic manage PostgreSQL. SQLite is allowed only with `ENV=development` or `ENV=test`.
 - Stripe-hosted Checkout and Customer Portal handle payment UI; verified, idempotent webhooks control entitlements.
@@ -60,6 +60,10 @@ Campaign links may include `utm_source`, `utm_medium`, `utm_campaign`, `utm_cont
 ```bash
 python -m scripts.acquisition_report --since 2026-08-27
 ```
+
+The report measures signups, users with at least one draft, and users who are currently active on a paid plan. It does not measure visits, Checkout starts, or completed Checkouts.
+
+The intended customer channels are `support@sellerdrafts.com` and `privacy@sellerdrafts.com`. Before any public promotion, manually send and receive a test through each channel and confirm the published mailbox routing and reply process; do not treat aliases as working merely because they appear in copy.
 
 ## Local production-like run
 
@@ -107,7 +111,7 @@ Do not enable Stripe automatic tax unless the operator has the registrations req
 
 Copy `.env.example` only for local reference. Railway variables should be entered in its secret manager. `DATABASE_URL` accepts Railway's `postgres://`/`postgresql://` forms and is normalized to psycopg 3.
 
-Email verification is an intentionally disabled v1 stub (`EMAIL_VERIFICATION_REQUIRED=false`). Do not turn it on until an email delivery adapter is connected. Signup still requires Terms acceptance.
+Email verification is an intentionally disabled v1 stub (`EMAIL_VERIFICATION_REQUIRED=false`). Do not turn it on until an email delivery adapter is connected. Production therefore supports Google for new accounts and keeps password login only for existing accounts; development/test password signup remains available. Every new account records the current Terms version, and stale accounts must reaccept before using the workspace.
 
 Do not set `LISTINGFORGE_SKIP_AUTH`, `TRUEDRAFT_SKIP_AUTH`, `LISTINGFORGE_REQUIRE_AUTH`, `LISTINGFORGE_USER_ID`, `STRIPE_SUCCESS_URL`, or `STRIPE_CANCEL_URL`. Those names belong to the abandoned local-demo path. Checkout and portal URLs are derived from `PUBLIC_BASE_URL`.
 
@@ -124,7 +128,7 @@ python -m scripts.launch_check
 
 `python -m scripts.launch_check` is read-only. In `ENV=production` it exits 1 unless every public-traffic gate passes. It prints the next operator action and never prints secrets. Add `--strict` to fail in non-production environments as well.
 
-CI runs lint, migrations, the fact-lock/auth/usage/billing/CSV suite, an import smoke test, and a Docker/PostgreSQL edge smoke. The container smoke verifies Alembic-head health, signup/session/logout through nginx, a Streamlit WebSocket upgrade, and signed/idempotent webhook delivery.
+CI runs lint, migrations, the fact-lock/auth/usage/billing/CSV suite, an import smoke test, and a Docker/PostgreSQL edge smoke. The container smoke provisions an internal fixture, proves public production password signup is blocked, verifies existing-account login/session/logout through nginx, upgrades a Streamlit WebSocket, and checks signed/idempotent webhook delivery.
 
 The final repository security review and residual operator checks are recorded in [docs/SECURITY_REVIEW.md](docs/SECURITY_REVIEW.md). Vulnerabilities should be disclosed privately through [SECURITY.md](SECURITY.md), not a public issue.
 
