@@ -9,8 +9,10 @@ from core.auth import (
     AuthError,
     authenticate_user,
     create_user_session,
+    find_user_by_google_subject,
     get_or_create_google_user,
     get_user_by_session_token,
+    link_google_identity,
     register_user,
     revoke_user_session,
 )
@@ -106,11 +108,93 @@ def test_google_identity_creates_one_user_and_reuses_subject():
         second = get_or_create_google_user(
             session,
             subject="google-subject-new",
-            email="google-user@example.com",
+            email="google-user-renamed@example.com",
             name="Google User",
         )
         assert second.id == first_id
         assert session.query(User).filter_by(email="google-user@example.com").count() == 1
+        assert find_user_by_google_subject(session, "google-subject-new").id == first_id
+
+
+def test_google_sign_in_rejects_duplicate_email_without_auto_link(user_factory):
+    existing = user_factory(email="existing-google-email@example.com")
+    with (
+        session_scope() as session,
+        pytest.raises(AuthError, match="Sign in with your password, then link Google"),
+    ):
+        get_or_create_google_user(
+            session,
+            subject="unlinked-google-subject",
+            email="Existing-Google-Email@example.com",
+            name="Existing User",
+        )
+
+    with session_scope() as session:
+        stored = session.get(User, existing.id)
+        assert stored.google_subject is None
+        assert find_user_by_google_subject(session, "unlinked-google-subject") is None
+
+
+def test_explicit_google_link_succeeds_and_revokes_all_sessions(user_factory):
+    user = user_factory(email="link-owner@example.com")
+    with session_scope() as session:
+        first_token = create_user_session(session, user.id)
+        second_token = create_user_session(session, user.id)
+        stored = session.get(User, user.id)
+        linked = link_google_identity(
+            session,
+            user=stored,
+            subject="explicit-google-subject",
+            email="link-owner@example.com",
+        )
+        assert linked.google_subject == "explicit-google-subject"
+        assert linked.google_email == "link-owner@example.com"
+        assert get_user_by_session_token(session, first_token) is None
+        assert get_user_by_session_token(session, second_token) is None
+        assert all(
+            auth_session.revoked_at is not None
+            for auth_session in session.query(UserSession).filter_by(user_id=user.id).all()
+        )
+
+
+def test_explicit_google_link_rejects_subject_owned_by_another_user(user_factory):
+    owner = user_factory(email="google-owner@example.com")
+    other = user_factory(email="google-linker@example.com")
+    with session_scope() as session:
+        owner_record = session.get(User, owner.id)
+        link_google_identity(
+            session,
+            user=owner_record,
+            subject="already-owned-google-subject",
+            email="google-owner@example.com",
+        )
+
+    with session_scope() as session, pytest.raises(AuthError, match="another account"):
+        other_record = session.get(User, other.id)
+        link_google_identity(
+            session,
+            user=other_record,
+            subject="already-owned-google-subject",
+            email="google-linker@example.com",
+        )
+
+    with session_scope() as session:
+        assert session.get(User, other.id).google_subject is None
+
+
+def test_explicit_google_link_requires_matching_verified_email(user_factory):
+    user = user_factory(email="local-owner@example.com")
+    with session_scope() as session, pytest.raises(AuthError, match="same email"):
+        stored = session.get(User, user.id)
+        link_google_identity(
+            session,
+            user=stored,
+            subject="different-email-subject",
+            email="different-google@example.com",
+        )
+
+    with session_scope() as session:
+        assert session.get(User, user.id).google_subject is None
 
 
 def test_revoked_session_is_rejected(user_factory):

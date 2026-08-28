@@ -12,6 +12,7 @@ from core.billing import WebhookVerificationError
 from core.config import reset_settings_cache
 from core.copy import forbidden_claims_in
 from core.database import session_scope
+from core.legal import CONTACT_EMAIL, OPERATOR_NAME, TERMS_VERSION
 from core.models import User
 
 
@@ -54,12 +55,38 @@ def test_public_signup_sets_httponly_session_cookie():
         assert session.query(User).filter_by(email="web@example.com").one().terms_accepted_at
 
 
+def test_password_signup_preserves_allowlisted_plan_and_rejects_arbitrary_intent():
+    web = _reload_web()
+    with TestClient(web.app) as client:
+        page = client.get("/auth/signup?plan=starter")
+        assert 'name="plan" value="starter"' in page.text
+        response = client.post(
+            "/auth/signup",
+            data={
+                "csrf_token": _csrf(page.text),
+                "name": "Starter Intent",
+                "email": "starter-intent@example.com",
+                "password": "correct horse battery staple",
+                "accepted_terms": "true",
+                "plan": "starter",
+            },
+            follow_redirects=False,
+        )
+        assert response.headers["location"] == "/app/About_Pricing?plan=starter"
+
+    web = _reload_web()
+    with TestClient(web.app) as client:
+        arbitrary = client.get("/auth/signup?plan=https://attacker.example")
+        assert 'name="plan" value=""' in arbitrary.text
+        assert web._plan_intent("https://attacker.example") == ""
+
+
 def test_public_marketing_routes_are_server_rendered_and_indexable():
     web = _reload_web()
     with TestClient(web.app) as client:
         home = client.get("/")
         assert home.status_code == 200
-        assert "<title>SellerDrafts</title>" in home.text
+        assert "<title>Etsy Listing Draft Generator | SellerDrafts</title>" in home.text
         assert '<link rel="canonical" href="http://localhost:8080/">' in home.text
         assert 'type="application/ld+json"' in home.text
         assert "Etsy listing drafts that stay inside the facts" in home.text
@@ -99,6 +126,18 @@ def test_robots_and_sitemap_expose_only_public_canonical_routes():
         assert "/guides/etsy-listing-draft-checklist" in sitemap.text
         assert "/auth/" not in sitemap.text
         assert "/app/" not in sitemap.text
+        assert "<lastmod>" not in sitemap.text
+
+
+def test_first_touch_attribution_is_not_overwritten_by_later_campaign():
+    web = _reload_web()
+    with TestClient(web.app) as client:
+        client.get("/?utm_source=first&utm_campaign=founding")
+        first_cookie = client.cookies.get("sellerdrafts_attribution")
+        assert first_cookie
+        second = client.get("/?utm_source=second&utm_campaign=retargeting")
+        assert "sellerdrafts_attribution" not in second.headers.get("set-cookie", "")
+        assert client.cookies.get("sellerdrafts_attribution") == first_cookie
 
 
 def test_tagged_signup_persists_signed_first_touch_attribution():
@@ -197,9 +236,33 @@ def test_google_callback_rejects_missing_or_forged_state(monkeypatch):
         forged = client.get("/auth/google/callback?state=forged&code=fake")
         assert forged.status_code == 400
         assert "fake" not in forged.text
+        assert client.cookies.get("sellerdrafts_google_oauth") is None
 
 
-def test_google_callback_links_existing_email_and_sets_session(monkeypatch, user_factory):
+def test_google_callback_rejects_mismatched_browser_state_cookie(monkeypatch):
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "google-client-id.apps.googleusercontent.com")
+    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "google-client-secret")
+    reset_settings_cache()
+    web = _reload_web()
+
+    with TestClient(web.app) as client:
+        start = client.get("/auth/google", follow_redirects=False)
+        state = parse_qs(urlparse(start.headers["location"]).query)["state"][0]
+        client.cookies.set(
+            "sellerdrafts_google_oauth",
+            "different-browser-state",
+            path="/auth/google",
+        )
+        callback = client.get(
+            f"/auth/google/callback?state={state}&code=mock-code",
+            follow_redirects=False,
+        )
+        assert callback.status_code == 400
+        assert "sellerdrafts_google_oauth=" in callback.headers.get("set-cookie", "")
+        assert "Max-Age=0" in callback.headers.get("set-cookie", "")
+
+
+def test_google_login_does_not_auto_link_existing_email(monkeypatch, user_factory):
     existing = user_factory(email="linked@example.com")
     monkeypatch.setenv("GOOGLE_CLIENT_ID", "google-client-id.apps.googleusercontent.com")
     monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "google-client-secret")
@@ -211,8 +274,6 @@ def test_google_callback_links_existing_email_and_sets_session(monkeypatch, user
         query = parse_qs(urlparse(start.headers["location"]).query)
         state = query["state"][0]
         nonce = query["nonce"][0]
-        packed = web._unpack_google_oauth(state)
-        assert packed is not None
         monkeypatch.setattr(
             web,
             "_google_token_claims",
@@ -229,13 +290,200 @@ def test_google_callback_links_existing_email_and_sets_session(monkeypatch, user
             follow_redirects=False,
         )
 
-    assert callback.status_code == 303
-    assert "truedraft_session" in callback.headers["set-cookie"]
+    assert callback.status_code == 400
+    assert "link Google from Account" in callback.text
+    assert "truedraft_session" not in callback.headers.get("set-cookie", "")
     with session_scope() as session:
         users = session.query(User).filter_by(email="linked@example.com").all()
         assert len(users) == 1
         assert users[0].id == existing.id
-        assert users[0].google_subject == "google-subject-123"
+        assert users[0].google_subject is None
+
+
+def test_google_new_account_preserves_allowlisted_plan_and_current_terms(monkeypatch):
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "google-client-id.apps.googleusercontent.com")
+    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "google-client-secret")
+    reset_settings_cache()
+    web = _reload_web()
+
+    with TestClient(web.app) as client:
+        start = client.get("/auth/google?plan=starter", follow_redirects=False)
+        query = parse_qs(urlparse(start.headers["location"]).query)
+        state = query["state"][0]
+        nonce = query["nonce"][0]
+        packed = web._unpack_google_oauth(state)
+        assert packed is not None and packed["plan"] == "starter"
+        monkeypatch.setattr(
+            web,
+            "_google_token_claims",
+            lambda _code: {
+                "sub": "new-google-subject",
+                "email": "new-google@example.com",
+                "email_verified": True,
+                "name": "New Google User",
+                "nonce": nonce,
+            },
+        )
+        callback = client.get(
+            f"/auth/google/callback?state={state}&code=mock-code",
+            follow_redirects=False,
+        )
+
+    assert callback.status_code == 303
+    assert callback.headers["location"] == "/app/About_Pricing?plan=starter"
+    assert "truedraft_session" in callback.headers["set-cookie"]
+    assert "sellerdrafts_google_oauth=" in callback.headers["set-cookie"]
+    with session_scope() as session:
+        user = session.query(User).filter_by(email="new-google@example.com").one()
+        assert user.terms_version == TERMS_VERSION
+
+
+def test_google_link_requires_auth_and_matching_account(monkeypatch, user_factory):
+    user_factory(email="link-web@example.com")
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "google-client-id.apps.googleusercontent.com")
+    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "google-client-secret")
+    reset_settings_cache()
+    web = _reload_web()
+
+    with TestClient(web.app) as anonymous:
+        assert (
+            anonymous.post(
+                "/auth/google/link",
+                data={"csrf_token": "x"},
+                follow_redirects=False,
+            ).status_code
+            == 303
+        )
+
+    with TestClient(web.app) as client:
+        login_page = client.get("/auth/login")
+        login = client.post(
+            "/auth/login",
+            data={
+                "csrf_token": _csrf(login_page.text),
+                "email": "link-web@example.com",
+                "password": "correct horse battery staple",
+            },
+            follow_redirects=False,
+        )
+        original_cookie = re.search(r"truedraft_session=([^;]+)", login.headers["set-cookie"])
+        assert original_cookie is not None
+        account = client.get("/auth/account")
+        start = client.post(
+            "/auth/google/link",
+            data={"csrf_token": _csrf(account.text)},
+            follow_redirects=False,
+        )
+        query = parse_qs(urlparse(start.headers["location"]).query)
+        state = query["state"][0]
+        nonce = query["nonce"][0]
+        assert web._unpack_google_oauth(state)["mode"] == "link"
+        monkeypatch.setattr(
+            web,
+            "_google_token_claims",
+            lambda _code: {
+                "sub": "linked-web-subject",
+                "email": "link-web@example.com",
+                "email_verified": True,
+                "name": "Link Web",
+                "nonce": nonce,
+            },
+        )
+        callback = client.get(
+            f"/auth/google/callback?state={state}&code=mock-code",
+            follow_redirects=False,
+        )
+        assert callback.status_code == 303
+        assert "truedraft_session" in callback.headers["set-cookie"]
+
+    with session_scope() as session:
+        linked = session.query(User).filter_by(email="link-web@example.com").one()
+        assert linked.google_subject == "linked-web-subject"
+        assert get_user_by_session_token(session, original_cookie.group(1)) is None
+
+
+def test_production_password_signup_is_disabled(monkeypatch):
+    with monkeypatch.context() as production:
+        production.setenv("ENV", "production")
+        production.setenv("DATABASE_URL", "postgresql://user:pass@db/sellerdrafts")
+        production.setenv("PUBLIC_BASE_URL", "https://sellerdrafts.example")
+        production.setenv("SESSION_SECRET", "unique-production-session-secret-2026-08-27")
+        production.setenv("SESSION_COOKIE_SECURE", "true")
+        production.setenv("GOOGLE_CLIENT_ID", "google-client-id.apps.googleusercontent.com")
+        production.setenv("GOOGLE_CLIENT_SECRET", "google-client-secret")
+        reset_settings_cache()
+        web = _reload_web()
+        with TestClient(web.app) as client:
+            request_headers = {"host": "sellerdrafts.example"}
+            page = client.get("/auth/signup?plan=starter", headers=request_headers)
+            assert page.status_code == 200
+            assert 'name="password"' not in page.text
+            assert "Sign in with Google" in page.text
+            response = client.post(
+                "/auth/signup",
+                data={
+                    "name": "Blocked",
+                    "email": "blocked@example.com",
+                    "password": "correct horse battery staple",
+                    "csrf_token": "anything",
+                    "accepted_terms": "true",
+                    "plan": "starter",
+                },
+                headers=request_headers,
+            )
+            assert response.status_code == 403
+
+    reset_settings_cache()
+    _reload_web()
+
+
+def test_stale_terms_block_and_reacceptance_updates_version(user_factory):
+    user = user_factory(email="stale-terms@example.com")
+    with session_scope() as session:
+        session.get(User, user.id).terms_version = "2026-08-15"
+    web = _reload_web()
+
+    with TestClient(web.app) as client:
+        login_page = client.get("/auth/login")
+        login = client.post(
+            "/auth/login",
+            data={
+                "csrf_token": _csrf(login_page.text),
+                "email": "stale-terms@example.com",
+                "password": "correct horse battery staple",
+            },
+            follow_redirects=False,
+        )
+        assert login.headers["location"].startswith("/auth/terms?")
+        assert (
+            client.get("/", follow_redirects=False).headers["location"].startswith("/auth/terms?")
+        )
+        terms = client.get("/auth/terms?next=/app/")
+        accepted = client.post(
+            "/auth/terms",
+            data={
+                "csrf_token": _csrf(terms.text),
+                "accepted_terms": "true",
+                "next": "/app/",
+            },
+            follow_redirects=False,
+        )
+        assert accepted.status_code == 303
+        assert accepted.headers["location"] == "/app/"
+
+    with session_scope() as session:
+        stored = session.get(User, user.id)
+        assert stored.terms_version == TERMS_VERSION
+        assert stored.terms_accepted_at is not None
+
+
+def test_public_and_authenticated_legal_use_canonical_identity_and_version():
+    from core.marketing import legal_page
+
+    rendered = legal_page()
+    assert OPERATOR_NAME in rendered
+    assert CONTACT_EMAIL in rendered
+    assert "August 27, 2026" in rendered
 
 
 def test_logout_revokes_session_and_clears_cookie():

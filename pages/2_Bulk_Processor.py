@@ -40,9 +40,10 @@ st.caption(
     "uses one generation; invalid rows are reported without stopping the job."
 )
 render_quota_notice(usage)
-render_claim_categories()
+with st.expander("Claim categories", expanded=False):
+    render_claim_categories()
 st.code(
-    "product_name,primary_keyword,category,material,audience,features,extra_keywords,platform",
+    "product_name,primary_keyword,category,item_noun,color,material,size,occasion_or_recipient,audience,features,extra_keywords,platform",
     language=None,
 )
 st.caption(
@@ -56,7 +57,11 @@ sample = pd.DataFrame(
             "product_name": "Moon Pendant",
             "primary_keyword": "moon pendant necklace",
             "category": "jewelry",
+            "item_noun": "necklace",
+            "color": "",
             "material": "",
+            "size": "",
+            "occasion_or_recipient": "",
             "audience": "",
             "features": "",
             "extra_keywords": "celestial pendant",
@@ -164,7 +169,7 @@ if stored and stored.get("user_id") == str(user.id):
             {
                 "Product": result["meta"]["product_name"],
                 "Draft title": result["best_title"],
-                "Checklist": result["scores"]["overall"]["overall"],
+                "Checklist status": result["scores"]["overall"]["status"],
                 "Source": result["meta"]["source"],
             }
             for result in results

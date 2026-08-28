@@ -17,9 +17,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .config import get_settings
+from .legal import TERMS_VERSION
 from .models import Subscription, User, UserSession, utcnow
 
-TERMS_VERSION = "2026-08-15"
 MIN_PASSWORD_LENGTH = 12
 MAX_PASSWORD_LENGTH = 128
 _PASSWORD_HASHER = PasswordHasher(
@@ -102,7 +102,20 @@ def register_user(
     return user
 
 
-def get_or_create_google_user(
+def _normalize_google_subject(subject: str) -> str:
+    clean_subject = subject.strip()
+    if not clean_subject or len(clean_subject) > 255:
+        raise AuthError("Google sign-in could not be completed.")
+    return clean_subject
+
+
+def find_user_by_google_subject(session: Session, subject: str) -> User | None:
+    """Return the account linked to a Google subject, if one exists."""
+    clean_subject = _normalize_google_subject(subject)
+    return session.scalar(select(User).where(User.google_subject == clean_subject))
+
+
+def create_google_user(
     session: Session,
     *,
     subject: str,
@@ -110,35 +123,19 @@ def get_or_create_google_user(
     name: str,
     attribution: dict[str, Any] | None = None,
 ) -> User:
-    """Link a verified Google identity by subject, falling back to normalized email."""
-    clean_subject = subject.strip()
-    if not clean_subject or len(clean_subject) > 255:
-        raise AuthError("Google sign-in could not be completed.")
+    """Create a Google-backed account without linking an existing email account."""
+    clean_subject = _normalize_google_subject(subject)
     normalized_email = normalize_email(email)
     clean_name = " ".join(name.split())[:120] or normalized_email.split("@", 1)[0][:120]
     now = utcnow()
 
-    user = session.scalar(select(User).where(User.google_subject == clean_subject))
-    if user is not None:
-        if not user.is_active:
-            raise AuthError("Google sign-in could not be completed.")
-        user.google_email = normalized_email
-        if user.email_verified_at is None:
-            user.email_verified_at = now
-        session.flush()
-        return user
-
-    user = session.scalar(select(User).where(User.email == normalized_email))
-    if user is not None:
-        if not user.is_active or (
-            user.google_subject is not None and user.google_subject != clean_subject
-        ):
-            raise AuthError("Google sign-in could not be completed.")
-        user.google_subject = clean_subject
-        user.google_email = normalized_email
-        user.email_verified_at = now
-        session.flush()
-        return user
+    if find_user_by_google_subject(session, clean_subject) is not None:
+        raise AuthError("This Google account is already linked to an account.")
+    if session.scalar(select(User).where(User.email == normalized_email)) is not None:
+        raise AuthError(
+            "An account with this email already exists. Sign in with your password, "
+            "then link Google from your account settings."
+        )
 
     user = User(
         email=normalized_email,
@@ -162,6 +159,82 @@ def get_or_create_google_user(
     session.add(Subscription(user_id=user.id, plan="free", status="free"))
     session.flush()
     return user
+
+
+def revoke_all_user_sessions(session: Session, user_id: uuid.UUID) -> None:
+    """Revoke every active session belonging to a user."""
+    now = utcnow()
+    auth_sessions = session.scalars(
+        select(UserSession).where(
+            UserSession.user_id == user_id,
+            UserSession.revoked_at.is_(None),
+        )
+    )
+    changed = False
+    for auth_session in auth_sessions:
+        auth_session.revoked_at = now
+        changed = True
+    if changed:
+        session.flush()
+
+
+def link_google_identity(
+    session: Session,
+    *,
+    user: User,
+    subject: str,
+    email: str,
+) -> User:
+    """Link Google to an already-authenticated user and revoke existing sessions."""
+    clean_subject = _normalize_google_subject(subject)
+    normalized_email = normalize_email(email)
+    if not user.is_active:
+        raise AuthError("Google linking could not be completed for this account.")
+    if normalized_email != user.email:
+        raise AuthError(
+            "Choose the Google account with the same email as this SellerDrafts account."
+        )
+
+    linked_user = find_user_by_google_subject(session, clean_subject)
+    if linked_user is not None and linked_user.id != user.id:
+        raise AuthError("This Google account is already linked to another account.")
+    if user.google_subject is not None and user.google_subject != clean_subject:
+        raise AuthError("This account is already linked to a different Google account.")
+
+    user.google_subject = clean_subject
+    user.google_email = normalized_email
+    if user.email_verified_at is None:
+        user.email_verified_at = utcnow()
+    session.flush()
+    revoke_all_user_sessions(session, user.id)
+    return user
+
+
+def get_or_create_google_user(
+    session: Session,
+    *,
+    subject: str,
+    email: str,
+    name: str,
+    attribution: dict[str, Any] | None = None,
+) -> User:
+    """Resolve Google by immutable subject, or create a genuinely new account."""
+    user = find_user_by_google_subject(session, subject)
+    if user is not None:
+        if not user.is_active:
+            raise AuthError("Google sign-in could not be completed.")
+        user.google_email = normalize_email(email)
+        if user.email_verified_at is None:
+            user.email_verified_at = utcnow()
+        session.flush()
+        return user
+    return create_google_user(
+        session,
+        subject=subject,
+        email=email,
+        name=name,
+        attribution=attribution,
+    )
 
 
 def authenticate_user(session: Session, *, email: str, password: str) -> User | None:
@@ -250,7 +323,12 @@ def streamlit_current_user() -> User | None:
     from .database import session_scope
 
     with session_scope() as session:
-        return get_user_by_session_token(session, token, touch=True)
+        user = get_user_by_session_token(session, token, touch=True)
+    if user is not None and user.terms_version != TERMS_VERSION:
+        st.warning("Review and accept the current Terms before continuing.")
+        st.markdown("[Review current Terms](/auth/terms)")
+        st.stop()
+    return user
 
 
 def require_streamlit_user() -> User:

@@ -6,8 +6,6 @@ user-visible pages cannot drift into false claims or mixed naming.
 
 from __future__ import annotations
 
-import re
-
 from .plans import PLANS
 
 PRODUCT_NAME = "SellerDrafts"
@@ -26,7 +24,7 @@ DRAFT_BANNER = (
     "shipping statement, and product attribute against the actual product."
 )
 HEURISTIC_NOTICE = (
-    "Checklist scores are transparent heuristics only. They do not predict search "
+    "Checklist statuses are transparent heuristics only. They do not predict search "
     "ranking, conversion, or sales. Marketplace rules can change."
 )
 EXPORT_REMINDER = (
@@ -49,7 +47,7 @@ POSITIONING = (
     ),
     (
         "Not a ranking promise",
-        "Checklist scores measure visible structure only. They do not guarantee "
+        "Checklist statuses describe visible structure only. They do not guarantee "
         "search placement, clicks, or sales.",
     ),
     (
@@ -67,7 +65,7 @@ HOW_IT_WORKS = (
     ),
     (
         "2. Generate a draft",
-        "SellerDrafts rearranges supplied wording into titles, a description, and tags. "
+        "SellerDrafts rearranges supplied wording into a title draft, description, and tags. "
         "It will not invent a metal, certification, origin, or shipping claim.",
     ),
     (
@@ -85,7 +83,7 @@ HOW_IT_WORKS = (
 FEATURES = (
     (
         "Single draft",
-        "One product at a time, with title options, a description, tags, and a "
+        "One product at a time, with a title draft, description, tags, and a "
         "transparent checklist.",
     ),
     (
@@ -95,7 +93,7 @@ FEATURES = (
     ),
     (
         "Listing checklist",
-        "Paste existing listing text to score structure. It cannot judge truth or "
+        "Paste existing listing text to review structure. It cannot judge truth or "
         "marketplace eligibility.",
     ),
     (
@@ -161,40 +159,14 @@ CLAIM_CATEGORIES = (
 )
 
 
-def _claim_terms(examples: str) -> list[str]:
-    """Return the configured example phrases without creating another claim list."""
-
-    cleaned = examples.replace(", and similar substances", "")
-    return [term.strip() for term in cleaned.split(",") if term.strip()]
-
-
 def audit_unverified_claims(
     listing_text: str, verified_source_text: str = ""
 ) -> list[dict[str, str]]:
-    """Find configured claim phrases that are absent from the supplied source facts."""
+    """Compatibility wrapper around the shared polarity-aware claim audit."""
 
-    source = str(verified_source_text or "")
-    matches: list[dict[str, str | int]] = []
-    seen: set[tuple[str, str]] = set()
-    for category, examples in CLAIM_CATEGORIES:
-        for phrase in sorted(_claim_terms(examples), key=len, reverse=True):
-            pattern = re.compile(rf"(?<!\w){re.escape(phrase)}(?!\w)", re.IGNORECASE)
-            if pattern.search(source):
-                continue
-            for match in pattern.finditer(str(listing_text or "")):
-                key = (category, match.group(0).casefold())
-                if key in seen:
-                    continue
-                seen.add(key)
-                matches.append(
-                    {
-                        "phrase": match.group(0),
-                        "category": category,
-                        "position": match.start(),
-                    }
-                )
-    matches.sort(key=lambda item: (int(item["position"]), str(item["category"])))
-    return [{"phrase": str(item["phrase"]), "category": str(item["category"])} for item in matches]
+    from .claims import audit_unverified_claims as shared_audit
+
+    return shared_audit(listing_text, verified_source_text)
 
 
 PLAN_BLURBS = {

@@ -3,7 +3,8 @@
 ## Supported version
 
 Security fixes are applied to the current `main` branch. No older release line
-is supported before the first public SellerDrafts release.
+is supported. A technically live service remains an unreviewed pilot until its
+operator-owned launch and communication gates are completed.
 
 ## Report a vulnerability privately
 
@@ -16,5 +17,7 @@ Include the affected commit, route or component, reproduction conditions,
 impact, and a minimal safe proof where possible. The operator will coordinate
 validation and remediation through the private advisory before disclosure.
 
-For ordinary product or legal contact, use the operator address published in
-the deployed SellerDrafts Legal page after its launch placeholders are replaced.
+For ordinary product support, use `support@sellerdrafts.com`; for privacy
+requests, use `privacy@sellerdrafts.com`. Before public promotion, the operator
+must manually verify send/receive/reply handling for both channels. These
+channels are not a substitute for GitHub private vulnerability reporting.

@@ -20,6 +20,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from .legal import TERMS_VERSION
+
 
 def utcnow() -> datetime:
     return datetime.now(UTC)
@@ -42,7 +44,7 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     terms_accepted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    terms_version: Mapped[str] = mapped_column(String(32), default="2026-08-15")
+    terms_version: Mapped[str] = mapped_column(String(32), default=TERMS_VERSION)
     acquisition_source: Mapped[str | None] = mapped_column(String(120))
     acquisition_medium: Mapped[str | None] = mapped_column(String(120))
     acquisition_campaign: Mapped[str | None] = mapped_column(String(120))

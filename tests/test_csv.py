@@ -48,3 +48,32 @@ def test_csv_export_neutralizes_spreadsheet_formula_prefixes():
     assert row["Product Name"].startswith("'=")
     assert row["Primary Keyword"].startswith("'@")
     assert row["Best Title"].startswith("'=")
+
+
+def test_csv_preserves_single_draft_optional_fact_fields():
+    frame = read_csv_bytes(
+        b"product_name,item_noun,color,size,occasion_or_recipient,platform\n"
+        b"Moon Pendant,necklace,blue,18 inch,birthday gift,etsy\n"
+    )
+
+    row = validate_csv_rows(frame)[0]
+
+    assert row.error is None
+    assert row.payload is not None
+    assert row.payload["item_noun"] == "necklace"
+    assert row.payload["color"] == "blue"
+    assert row.payload["size"] == "18 inch"
+    assert row.payload["occasion_or_recipient"] == "birthday gift"
+
+
+def test_export_shows_statuses_not_numeric_scores_or_grades():
+    result = ListingGenerator(use_llm=False).generate_full_listing(
+        product_name="Moon Pendant", platform="etsy"
+    )
+
+    row = export_to_dataframe([result]).iloc[0]
+
+    assert "Checklist Status" in row.index
+    assert "Overall Score" not in row.index
+    assert "Grade" not in row.index
+    assert "Draft Disclaimer" in row.index

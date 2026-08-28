@@ -105,6 +105,12 @@ class Settings:
         return bool(self.google_client_id and self.google_client_secret)
 
     @property
+    def password_signup_enabled(self) -> bool:
+        """Keep local password registration available outside production only."""
+
+        return not self.is_production
+
+    @property
     def stripe_price_to_plan(self) -> dict[str, str]:
         return {
             price: plan

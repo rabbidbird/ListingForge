@@ -1,20 +1,24 @@
 # SellerDrafts v1 security review
 
 Review date: 2026-08-23  
-Scope: the public `main` application, authentication edge, persistence, Stripe
+Scope: the code on this branch: authentication edge, persistence, Stripe
 billing, generation controls, Docker/nginx runtime, and CI configuration.
 
 ## Executive summary
 
 No unresolved critical, high, or medium application-security findings remain in
-the reviewed v1 code. Ten defense/proof gaps found during the final review were
-fixed and covered by automated checks. `pip-audit 2.10.1 -r requirements.txt`
-reported no known vulnerabilities in the pinned dependency set at review time.
+the reviewed v1 code. The security risks identified in this branch's review are
+resolved in code and covered by automated checks. `pip-audit 2.10.1 -r
+requirements.txt` reported no known vulnerabilities in the pinned dependency
+set at review time.
 
-This is a repository and container review, not a penetration test of the future
-public domain. TLS, Railway network settings, live Stripe configuration, secret
-access policy, backups, and legal identity still require operator verification
-using `SHIP_CHECKLIST.md`.
+This is a repository and container review, not a penetration test of a public
+domain, and it is not a legal review. TLS, Railway network settings, live Stripe
+configuration, secret access policy, backups, legal/business details, and manual
+send/receive/reply tests for `support@sellerdrafts.com` and
+`privacy@sellerdrafts.com` still require operator verification using
+`SHIP_CHECKLIST.md`. Passing technical checks means the service can be live; it
+does not authorize paid acquisition for the unreviewed pilot.
 
 ## Resolved findings
 
@@ -37,9 +41,12 @@ using `SHIP_CHECKLIST.md`.
 
 - **Severity:** Medium (resolved)
 - **Location:** `scripts/container_smoke.py`, `.github/workflows/ci.yml:59`
-- **Evidence:** CI now signs up a user through nginx, checks the HttpOnly session,
-  opens the Streamlit WebSocket, verifies signed Stripe delivery and retry
-  idempotency, logs out, and confirms the session is no longer accepted.
+- **Evidence:** CI provisions an internal fixture, confirms that the signup
+  surface matches the stack environment, signs in that existing account
+  through nginx, checks the HttpOnly session, opens the Streamlit WebSocket,
+  verifies signed Stripe delivery and retry idempotency, logs out, and confirms
+  the session is no longer accepted. The auth suite separately proves that
+  production password registration fails closed.
 - **Impact before fix:** nginx routing, cookie forwarding, or WebSocket upgrades
   could regress while a simple `/healthz` poll remained green.
 - **Fix:** run the edge smoke inside the built Compose application after health.
@@ -200,6 +207,61 @@ using `SHIP_CHECKLIST.md`.
 - **False-positive notes:** the alert paths were reachable even though current
   exception messages did not include stack traces. Treating them as genuine
   boundary weaknesses prevents future exception-content regressions.
+
+## August 28, 2026 pilot-readiness supplement
+
+This supplement is a repository review of the feature branch, not an external
+penetration test, production-data audit, deployment verification, or legal
+review.
+
+### SEC-11 — matching-email Google sign-in could pre-hijack a password account
+
+- **Severity:** High (resolved in this branch; deployment pending)
+- **Evidence:** Google login now resolves only an immutable Google subject. If a
+  verified Google email matches an existing unlinked account, login fails with
+  instructions to authenticate with the password and link from Account.
+- **Fix:** split subject lookup, new Google-user creation, and authenticated
+  identity linking into explicit operations. A Google subject cannot move to a
+  different user.
+- **Residual operator risk:** existing dual-auth accounts are not mutated or
+  locked automatically. Review production identity history separately if an
+  incident or account complaint provides a reason to do so.
+
+### SEC-12 — OAuth state was signed but not bound to the initiating browser
+
+- **Severity:** High (resolved in this branch; deployment pending)
+- **Evidence:** initiation stores a random matching value in a short-lived
+  HttpOnly, SameSite=Lax cookie restricted to `/auth/google`; production adds
+  Secure. Callback requires a constant-time match, validates the ID-token nonce
+  through the Google library, and clears the cookie on handled success/failure.
+- **Fix:** signed state now also carries login/link mode and an allowlisted plan
+  intent. Link mode requires the same valid SellerDrafts session and normalized
+  email, revokes other sessions, and issues a fresh current session.
+- **Residual operator risk:** Google Console redirect/origin settings and OAuth
+  consent configuration remain operator-managed external controls.
+
+### SEC-13 — stale Terms consent did not block product use
+
+- **Severity:** Medium (resolved in this branch; deployment pending)
+- **Evidence:** one canonical version (`2026-08-27-v1`) is stored for password
+  and Google accounts. FastAPI redirects stale sessions to an authenticated,
+  CSRF-protected acceptance POST, and Streamlit stops stale sessions before any
+  workspace page renders.
+- **Fix:** public and authenticated legal pages now render the same canonical
+  policy source, and post-acceptance destinations are an internal allowlist.
+- **Residual operator risk:** independent legal/business review remains
+  incomplete and is explicitly tracked in `SHIP_CHECKLIST.md`.
+
+### SEC-14 — campaign attribution was signed but not truly first-touch
+
+- **Severity:** Low (resolved in this branch; deployment pending)
+- **Evidence:** a valid existing attribution cookie is preserved when a later
+  tagged URL is visited. Invalid/expired cookies can be replaced, direct traffic
+  creates no campaign attribution, and an existing user's stored acquisition
+  columns are never rewritten.
+- **Residual operator risk:** the first-party report measures only signups,
+  users with at least one draft, and currently active paid users; it is not a
+  visit, checkout, revenue, or profitability report.
 
 ## Existing controls verified
 

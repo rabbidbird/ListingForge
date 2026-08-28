@@ -40,6 +40,9 @@ draft_banner()
 
 checkout_state = st.query_params.get("checkout")
 portal_state = st.query_params.get("portal")
+selected_plan = str(st.query_params.get("plan") or "").lower()
+if selected_plan not in {"starter", "pro", "agency"}:
+    selected_plan = ""
 if checkout_state == "success":
     st.success(
         "Checkout returned successfully. Stripe webhooks apply the paid entitlement in a "
@@ -79,6 +82,12 @@ if user is None:
     render_public_ctas(include_plans=False)
 else:
     usage = get_usage(user.id)
+    if selected_plan:
+        selected = PLANS[selected_plan]
+        st.info(
+            f"You selected {selected.name} — {selected.display_price}. "
+            "Review the limits below, then explicitly choose the plan to open Stripe Checkout."
+        )
     st.subheader(f"Current plan: {str(usage['plan']).title()}")
     st.caption(
         f"Billing status: {str(usage['status'])}. "
