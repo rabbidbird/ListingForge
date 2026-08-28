@@ -31,6 +31,7 @@ from .attribution import (
     ATTRIBUTION_COOKIE_NAME,
     ATTRIBUTION_MAX_AGE_SECONDS,
     pack_attribution,
+    unpack_attribution,
     user_attribution_fields,
 )
 from .auth import (
@@ -39,15 +40,17 @@ from .auth import (
     create_user_session,
     get_or_create_google_user,
     get_user_by_session_token,
+    link_google_identity,
     register_user,
     revoke_user_session,
 )
 from .billing import BillingError, WebhookVerificationError, handle_webhook
 from .config import PROJECT_ROOT, get_settings
 from .database import session_scope
+from .legal import TERMS_VERSION
 from .marketing import PUBLIC_PATHS, guide_page, home_page, legal_page, pricing_page
 from .migrate import database_at_migration_head
-from .models import User
+from .models import User, utcnow
 
 settings = get_settings()
 settings.validate_for_production()
@@ -68,6 +71,8 @@ _AUTH_WINDOW_SECONDS = 600
 _AUTH_REQUESTS_PER_WINDOW = 40
 _AUTH_IP_BUCKET_LIMIT = 10_000
 _GOOGLE_OAUTH_MAX_AGE = 600
+_GOOGLE_OAUTH_COOKIE = "sellerdrafts_google_oauth"
+_PLAN_INTENTS = frozenset({"free", "starter", "pro", "agency"})
 _ip_requests: OrderedDict[str, deque[float]] = OrderedDict()
 _ip_lock = threading.Lock()
 
@@ -115,7 +120,10 @@ async def security_and_soft_limit(request: Request, call_next):
 
 def _public_page_response(request: Request, content: str) -> HTMLResponse:
     response = HTMLResponse(content, headers={"Cache-Control": "public, max-age=300"})
-    packed = pack_attribution(request.query_params, landing_path=request.url.path)
+    existing = unpack_attribution(request.cookies.get(ATTRIBUTION_COOKIE_NAME))
+    packed = (
+        None if existing else pack_attribution(request.query_params, landing_path=request.url.path)
+    )
     if packed:
         response.set_cookie(
             ATTRIBUTION_COOKIE_NAME,
@@ -129,17 +137,40 @@ def _public_page_response(request: Request, content: str) -> HTMLResponse:
     return response
 
 
+def _plan_intent(value: str | None) -> str:
+    normalized = (value or "").strip().lower()
+    return normalized if normalized in _PLAN_INTENTS else ""
+
+
+def _intent_query(plan: str) -> str:
+    return f"?plan={plan}" if plan else ""
+
+
+def _post_auth_target(user: User, plan: str = "") -> str:
+    if user.terms_version != TERMS_VERSION:
+        next_path = "/app/About_Pricing" if plan in _PLAN_INTENTS - {"free"} else "/app/"
+        query = (
+            urlencode({"next": next_path, "plan": plan}) if plan else urlencode({"next": next_path})
+        )
+        return f"/auth/terms?{query}"
+    if plan in _PLAN_INTENTS - {"free"}:
+        return f"/app/About_Pricing?plan={plan}"
+    return "/app/"
+
+
 @app.get("/", response_class=HTMLResponse)
 def public_home(request: Request):
-    if _current_request_user(request):
-        return RedirectResponse("/app/", status_code=303)
+    if user := _current_request_user(request):
+        return RedirectResponse(_post_auth_target(user), status_code=303)
     return _public_page_response(request, home_page())
 
 
 @app.get("/pricing", response_class=HTMLResponse)
 def public_pricing(request: Request):
-    if _current_request_user(request):
-        return RedirectResponse("/app/About_Pricing", status_code=303)
+    if user := _current_request_user(request):
+        return RedirectResponse(
+            _post_auth_target(user, _plan_intent(request.query_params.get("plan"))), status_code=303
+        )
     return _public_page_response(request, pricing_page())
 
 
@@ -190,8 +221,7 @@ def favicon():
 @app.get("/sitemap.xml")
 def sitemap_xml():
     urls = "".join(
-        f"<url><loc>{settings.public_base_url}{path}</loc><lastmod>2026-08-27</lastmod></url>"
-        for path in PUBLIC_PATHS
+        f"<url><loc>{settings.public_base_url}{path}</loc></url>" for path in PUBLIC_PATHS
     )
     body = f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{urls}</urlset>'
     return Response(
@@ -281,11 +311,11 @@ def _current_request_user(request: Request) -> User | None:
         return get_user_by_session_token(session, token)
 
 
-def _google_button() -> str:
+def _google_button(plan: str = "") -> str:
     if not settings.google_configured:
         return ""
-    return """
-<a class="button google" href="/auth/google">Sign in with Google</a>
+    return f"""
+<a class="button google" href="/auth/google{_intent_query(plan)}">Sign in with Google</a>
 <div class="divider">or use email</div>
 """
 
@@ -298,11 +328,26 @@ def _google_state_serializer() -> URLSafeTimedSerializer:
     )
 
 
-def _pack_google_oauth(state: str, nonce: str) -> str:
-    return _google_state_serializer().dumps({"state": state, "nonce": nonce})
+def _pack_google_oauth(
+    state: str,
+    nonce: str,
+    *,
+    mode: str = "login",
+    user_id: str = "",
+    plan: str = "",
+) -> str:
+    return _google_state_serializer().dumps(
+        {
+            "state": state,
+            "nonce": nonce,
+            "mode": mode,
+            "user_id": user_id,
+            "plan": _plan_intent(plan),
+        }
+    )
 
 
-def _unpack_google_oauth(value: str | None) -> tuple[str, str] | None:
+def _unpack_google_oauth(value: str | None) -> dict[str, str] | None:
     if not value or len(value) > 2048:
         return None
     try:
@@ -312,11 +357,19 @@ def _unpack_google_oauth(value: str | None) -> tuple[str, str] | None:
         )
         state = payload["state"]
         nonce = payload["nonce"]
+        mode = payload.get("mode", "login")
+        user_id = payload.get("user_id", "")
+        plan = _plan_intent(payload.get("plan"))
     except (BadData, KeyError, TypeError, ValueError):
         return None
-    if not isinstance(state, str) or not isinstance(nonce, str):
+    if (
+        not isinstance(state, str)
+        or not isinstance(nonce, str)
+        or mode not in {"login", "link"}
+        or not isinstance(user_id, str)
+    ):
         return None
-    return state, nonce
+    return {"state": state, "nonce": nonce, "mode": mode, "user_id": user_id, "plan": plan}
 
 
 class _TimeoutSession(requests.Session):
@@ -354,10 +407,16 @@ def _google_error(message: str, *, status_code: int = 400) -> HTMLResponse:
             "Google sign-in",
             f'<h1>Google sign-in</h1><p class="error">{html.escape(message)}</p>'
             '<p class="note"><a href="/auth/login">Return to sign in</a> or '
-            '<a href="/auth/signup">create an account with email</a>.</p>',
+            '<a href="/auth/signup">return to account creation</a>.</p>',
         ),
         status_code=status_code,
     )
+
+
+def _google_callback_error(message: str, *, status_code: int = 400) -> HTMLResponse:
+    response = _google_error(message, status_code=status_code)
+    response.delete_cookie(_GOOGLE_OAUTH_COOKIE, path="/auth/google")
+    return response
 
 
 LOGIN_FORM = """
@@ -367,6 +426,7 @@ LOGIN_FORM = """
 {google_button}
 <form method="post" action="/auth/login">
 <input type="hidden" name="csrf_token" value="{{CSRF}}">
+<input type="hidden" name="plan" value="{plan}">
 <label for="email">Email</label><input id="email" name="email" type="email" autocomplete="email" required value="{email}">
 <label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" maxlength="128" required>
 <button type="submit">Sign in</button>
@@ -382,6 +442,7 @@ SIGNUP_FORM = """
 {google_button}
 <form method="post" action="/auth/signup">
 <input type="hidden" name="csrf_token" value="{{CSRF}}">
+<input type="hidden" name="plan" value="{plan}">
 <label for="name">Name</label><input id="name" name="name" type="text" autocomplete="name" maxlength="120" required value="{name}">
 <label for="email">Email</label><input id="email" name="email" type="email" autocomplete="email" required value="{email}">
 <label for="password">Password</label><input id="password" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required>
@@ -393,7 +454,7 @@ SIGNUP_FORM = """
 """
 
 
-def _login_form(*, error: str = "", email: str = "") -> str:
+def _login_form(*, error: str = "", email: str = "", plan: str = "") -> str:
     google_terms = (
         '<p class="fine">If Google creates a new SellerDrafts account, continuing means you '
         'accept the <a href="/legal" target="_blank">Terms of Service and Privacy Policy</a>.</p>'
@@ -403,12 +464,13 @@ def _login_form(*, error: str = "", email: str = "") -> str:
     return LOGIN_FORM.format(
         error=error,
         email=email,
-        google_button=_google_button(),
+        google_button=_google_button(plan),
         google_terms=google_terms,
+        plan=html.escape(plan, quote=True),
     )
 
 
-def _signup_form(*, error: str = "", name: str = "", email: str = "") -> str:
+def _signup_form(*, error: str = "", name: str = "", email: str = "", plan: str = "") -> str:
     google_terms = (
         '<p class="fine">By continuing with Google, you accept the '
         '<a href="/legal" target="_blank">Terms of Service and Privacy Policy</a>.</p>'
@@ -419,16 +481,18 @@ def _signup_form(*, error: str = "", name: str = "", email: str = "") -> str:
         error=error,
         name=name,
         email=email,
-        google_button=_google_button(),
+        google_button=_google_button(plan),
         google_terms=google_terms,
+        plan=html.escape(plan, quote=True),
     )
 
 
 @app.get("/auth/login", response_class=HTMLResponse)
 def login_page(request: Request):
-    if _current_request_user(request):
-        return RedirectResponse("/", status_code=303)
-    return _csrf_response("Sign in", _login_form())
+    plan = _plan_intent(request.query_params.get("plan"))
+    if user := _current_request_user(request):
+        return RedirectResponse(_post_auth_target(user, plan), status_code=303)
+    return _csrf_response("Sign in", _login_form(plan=plan))
 
 
 @app.post("/auth/login")
@@ -437,13 +501,16 @@ def login(
     email: str = Form(...),
     password: str = Form(...),
     csrf_token: str = Form(...),
+    plan: str = Form(""),
 ):
+    plan = _plan_intent(plan)
     if not _valid_csrf(request, csrf_token):
         return _csrf_response(
             "Sign in",
             _login_form(
                 error='<p class="error">This form expired. Please try again.</p>',
                 email=html.escape(email, quote=True),
+                plan=plan,
             ),
             status_code=400,
         )
@@ -459,10 +526,11 @@ def login(
             _login_form(
                 error='<p class="error">Email or password is incorrect.</p>',
                 email=html.escape(email, quote=True),
+                plan=plan,
             ),
             status_code=400,
         )
-    response = RedirectResponse("/", status_code=303)
+    response = RedirectResponse(_post_auth_target(user, plan), status_code=303)
     _set_session_cookie(response, token)
     _clear_attribution_cookie(response)
     return response
@@ -472,10 +540,29 @@ def login(
 def google_login(request: Request):
     if not settings.google_configured:
         return _google_error("Google sign-in is not configured.", status_code=404)
-    if _current_request_user(request):
-        return RedirectResponse("/", status_code=303)
+    if user := _current_request_user(request):
+        return RedirectResponse(_post_auth_target(user), status_code=303)
+    plan = _plan_intent(request.query_params.get("plan"))
+    return _start_google_oauth(request, mode="login", plan=plan)
+
+
+def _start_google_oauth(
+    request: Request,
+    *,
+    mode: str,
+    plan: str = "",
+    user: User | None = None,
+) -> RedirectResponse:
+    del request
     nonce = secrets.token_urlsafe(32)
-    state = _pack_google_oauth(secrets.token_urlsafe(32), nonce)
+    browser_state = secrets.token_urlsafe(32)
+    state = _pack_google_oauth(
+        browser_state,
+        nonce,
+        mode=mode,
+        user_id=str(user.id) if user else "",
+        plan=plan,
+    )
     authorization_url = "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(
         {
             "client_id": settings.google_client_id,
@@ -488,22 +575,37 @@ def google_login(request: Request):
             "prompt": "select_account",
         }
     )
-    return RedirectResponse(authorization_url, status_code=302)
+    response = RedirectResponse(authorization_url, status_code=302)
+    response.set_cookie(
+        _GOOGLE_OAUTH_COOKIE,
+        browser_state,
+        max_age=_GOOGLE_OAUTH_MAX_AGE,
+        httponly=True,
+        secure=settings.cookie_secure,
+        samesite="lax",
+        path="/auth/google",
+    )
+    return response
 
 
 @app.get("/auth/google/callback")
 def google_callback(request: Request):
     if not settings.google_configured:
-        return _google_error("Google sign-in is not configured.", status_code=404)
+        return _google_callback_error("Google sign-in is not configured.", status_code=404)
     returned_state = request.query_params.get("state", "")
     packed = _unpack_google_oauth(returned_state)
-    if packed is None:
-        return _google_error("This Google sign-in request expired or is invalid.")
+    browser_state = request.cookies.get(_GOOGLE_OAUTH_COOKIE, "")
+    if (
+        packed is None
+        or not browser_state
+        or not secrets.compare_digest(packed["state"], browser_state)
+    ):
+        return _google_callback_error("This Google sign-in request expired or is invalid.")
     if request.query_params.get("error"):
-        return _google_error("Google sign-in was cancelled or could not be completed.")
+        return _google_callback_error("Google sign-in was cancelled or could not be completed.")
     code = request.query_params.get("code", "")
     if not code or len(code) > 4096:
-        return _google_error("Google sign-in did not return a valid authorization code.")
+        return _google_callback_error("Google sign-in did not return a valid authorization code.")
 
     try:
         claims = _google_token_claims(code)
@@ -517,32 +619,76 @@ def google_callback(request: Request):
             or not isinstance(google_name, str)
             or claims.get("email_verified") is not True
             or not isinstance(returned_nonce, str)
-            or not secrets.compare_digest(packed[1], returned_nonce)
+            or not secrets.compare_digest(packed["nonce"], returned_nonce)
         ):
             raise AuthError("Google sign-in could not be completed.")
         with session_scope() as session:
-            user = get_or_create_google_user(
-                session,
-                subject=subject,
-                email=google_email,
-                name=google_name,
-                attribution=user_attribution_fields(request.cookies.get(ATTRIBUTION_COOKIE_NAME)),
-            )
+            if packed["mode"] == "link":
+                current = get_user_by_session_token(
+                    session, request.cookies.get(settings.session_cookie_name)
+                )
+                if current is None or not secrets.compare_digest(
+                    str(current.id), packed["user_id"]
+                ):
+                    raise AuthError("Sign in again before linking Google.")
+                user = link_google_identity(
+                    session,
+                    user=current,
+                    subject=subject,
+                    email=google_email,
+                )
+            else:
+                user = get_or_create_google_user(
+                    session,
+                    subject=subject,
+                    email=google_email,
+                    name=google_name,
+                    attribution=user_attribution_fields(
+                        request.cookies.get(ATTRIBUTION_COOKIE_NAME)
+                    ),
+                )
             token = create_user_session(session, user.id)
-    except (AuthError, GoogleAuthError, requests.RequestException, TypeError, ValueError):
-        return _google_error("Google sign-in could not be completed. Please try again.")
+    except AuthError as exc:
+        return _google_callback_error(str(exc))
+    except (GoogleAuthError, requests.RequestException, TypeError, ValueError):
+        return _google_callback_error("Google sign-in could not be completed. Please try again.")
 
-    response = RedirectResponse("/", status_code=303)
+    target = (
+        "/auth/account?linked=google"
+        if packed["mode"] == "link"
+        else _post_auth_target(user, packed["plan"])
+    )
+    response = RedirectResponse(target, status_code=303)
     _set_session_cookie(response, token)
     _clear_attribution_cookie(response)
+    response.delete_cookie(_GOOGLE_OAUTH_COOKIE, path="/auth/google")
     return response
 
 
 @app.get("/auth/signup", response_class=HTMLResponse)
 def signup_page(request: Request):
-    if _current_request_user(request):
-        return RedirectResponse("/", status_code=303)
-    return _csrf_response("Create account", _signup_form())
+    plan = _plan_intent(request.query_params.get("plan"))
+    if user := _current_request_user(request):
+        return RedirectResponse(_post_auth_target(user, plan), status_code=303)
+    if not settings.password_signup_enabled:
+        google = _google_button(plan)
+        creation_note = (
+            "Continue with Google to create an account."
+            if settings.google_configured
+            else "New account creation is temporarily unavailable."
+        )
+        body = (
+            "<h1>Create your account</h1>"
+            '<p class="note">Email/password registration is paused during the founding-seller '
+            f"pilot. {creation_note} Existing password accounts can "
+            "still sign in.</p>"
+            f"{google}"
+            f'<p class="note"><a href="/auth/login{_intent_query(plan)}">Sign in to an existing account</a>.</p>'
+            '<p class="fine">By continuing with Google, you accept the '
+            '<a href="/legal" target="_blank">current Terms of Service and Privacy Policy</a>.</p>'
+        )
+        return HTMLResponse(_page("Create account", body), status_code=200)
+    return _csrf_response("Create account", _signup_form(plan=plan))
 
 
 @app.post("/auth/signup")
@@ -553,7 +699,20 @@ def signup(
     password: str = Form(...),
     csrf_token: str = Form(...),
     accepted_terms: str | None = Form(None),
+    plan: str = Form(""),
 ):
+    plan = _plan_intent(plan)
+    if not settings.password_signup_enabled:
+        return HTMLResponse(
+            _page(
+                "Create account",
+                '<h1>Email signup paused</h1><p class="error">New password accounts are '
+                "not available during the founding-seller pilot.</p>"
+                f'<p class="note"><a href="/auth/signup{_intent_query(plan)}">Use Google to create an account</a> '
+                'or <a href="/auth/login">sign in to an existing password account</a>.</p>',
+            ),
+            status_code=403,
+        )
     safe_name = html.escape(name, quote=True)
     safe_email = html.escape(email, quote=True)
     if not _valid_csrf(request, csrf_token):
@@ -563,6 +722,7 @@ def signup(
                 error='<p class="error">This form expired. Please try again.</p>',
                 name=safe_name,
                 email=safe_email,
+                plan=plan,
             ),
             status_code=400,
         )
@@ -589,6 +749,7 @@ def signup(
                 ),
                 name=safe_name,
                 email=safe_email,
+                plan=plan,
             ),
             status_code=400,
         )
@@ -601,7 +762,7 @@ def signup(
             ),
             status_code=202,
         )
-    response = RedirectResponse("/", status_code=303)
+    response = RedirectResponse(_post_auth_target(user, plan), status_code=303)
     _set_session_cookie(response, token)
     _clear_attribution_cookie(response)
     return response
@@ -612,15 +773,112 @@ def account_page(request: Request):
     user = _current_request_user(request)
     if user is None:
         return RedirectResponse("/auth/login", status_code=303)
-    provider = "Email and Google" if user.google_subject else "Email and password"
+    if user.terms_version != TERMS_VERSION:
+        return RedirectResponse("/auth/terms?next=/auth/account", status_code=303)
+    provider = "Google linked" if user.google_subject else "Google not linked"
+    linked_notice = (
+        '<p class="account">Google was linked successfully. Other active sessions were revoked.</p>'
+        if request.query_params.get("linked") == "google" and user.google_subject
+        else ""
+    )
+    link_action = (
+        '<p class="note">Google is linked to this account.</p>'
+        if user.google_subject
+        else """
+<form method="post" action="/auth/google/link">
+<input type="hidden" name="csrf_token" value="{{CSRF}}">
+<button type="submit" class="google">Link Google to this account</button>
+</form>
+<p class="fine">Linking requires a fresh sign-in and revokes other active sessions.</p>
+"""
+    )
     body = f"""
 <h1>Account</h1>
 <p class="note">Your drafts, usage, and billing entitlement stay attached to this account.</p>
-<div class="account"><strong>{html.escape(user.name)}</strong><br>{html.escape(user.email)}<br><span class="note">Sign-in method: {provider}</span></div>
+{linked_notice}
+<div class="account"><strong>{html.escape(user.name)}</strong><br>{html.escape(user.email)}<br><span class="note">Identity status: {provider}</span></div>
+{link_action}
 <a class="button" href="/">Return to SellerDrafts</a>
 <p class="note"><a href="/app/About_Pricing">Plans and billing</a> · <a href="/auth/logout">Log out</a></p>
 """
-    return HTMLResponse(_page("Account", body))
+    return _csrf_response("Account", body)
+
+
+@app.post("/auth/google/link")
+def google_link(request: Request, csrf_token: str = Form(...)):
+    if not settings.google_configured:
+        return _google_error("Google sign-in is not configured.", status_code=404)
+    user = _current_request_user(request)
+    if user is None:
+        return RedirectResponse("/auth/login", status_code=303)
+    if user.terms_version != TERMS_VERSION:
+        return RedirectResponse("/auth/terms?next=/auth/account", status_code=303)
+    if not _valid_csrf(request, csrf_token):
+        return _google_error("This account-link form expired. Please try again.")
+    return _start_google_oauth(request, mode="link", user=user)
+
+
+def _safe_post_terms_target(value: str | None) -> str:
+    return value if value in {"/app/", "/app/About_Pricing", "/auth/account"} else "/app/"
+
+
+@app.get("/auth/terms", response_class=HTMLResponse)
+def terms_acceptance_page(request: Request):
+    user = _current_request_user(request)
+    if user is None:
+        return RedirectResponse("/auth/login", status_code=303)
+    next_path = _safe_post_terms_target(request.query_params.get("next"))
+    plan = _plan_intent(request.query_params.get("plan"))
+    if user.terms_version == TERMS_VERSION:
+        return RedirectResponse(
+            f"{next_path}?plan={plan}" if plan and next_path == "/app/About_Pricing" else next_path,
+            status_code=303,
+        )
+    body = f"""
+<h1>Review updated Terms</h1>
+<p class="note">SellerDrafts Terms version {html.escape(TERMS_VERSION)} applies before you continue to the workspace.</p>
+<p><a href="/legal" target="_blank">Read the current Terms, Privacy Policy, and Acceptable Use Policy</a>.</p>
+<form method="post" action="/auth/terms">
+<input type="hidden" name="csrf_token" value="{{CSRF}}">
+<input type="hidden" name="next" value="{html.escape(next_path, quote=True)}">
+<input type="hidden" name="plan" value="{html.escape(plan, quote=True)}">
+<div class="check"><input id="terms" name="accepted_terms" type="checkbox" value="true" required><label for="terms">I accept the current Terms of Service and Privacy Policy.</label></div>
+<button type="submit">Accept and continue</button>
+</form>
+"""
+    return _csrf_response("Review updated Terms", body)
+
+
+@app.post("/auth/terms")
+def accept_current_terms(
+    request: Request,
+    csrf_token: str = Form(...),
+    accepted_terms: str | None = Form(None),
+    next: str = Form("/app/"),
+    plan: str = Form(""),
+):
+    user = _current_request_user(request)
+    if user is None:
+        return RedirectResponse("/auth/login", status_code=303)
+    next_path = _safe_post_terms_target(next)
+    plan = _plan_intent(plan)
+    if not _valid_csrf(request, csrf_token) or accepted_terms != "true":
+        return HTMLResponse(
+            _page(
+                "Review updated Terms",
+                '<h1>Terms not accepted</h1><p class="error">Accept the current Terms before continuing.</p>'
+                f'<p><a href="/auth/terms?{urlencode({"next": next_path, "plan": plan})}">Try again</a>.</p>',
+            ),
+            status_code=400,
+        )
+    with session_scope() as session:
+        stored = session.get(User, user.id)
+        if stored is None or not stored.is_active:
+            return RedirectResponse("/auth/login", status_code=303)
+        stored.terms_version = TERMS_VERSION
+        stored.terms_accepted_at = utcnow()
+    target = f"{next_path}?plan={plan}" if plan and next_path == "/app/About_Pricing" else next_path
+    return RedirectResponse(target, status_code=303)
 
 
 @app.get("/auth/logout", response_class=HTMLResponse)
