@@ -16,7 +16,7 @@ TERMS_MARKDOWN = f"""
 
 **Effective date:** {TERMS_EFFECTIVE_DATE}
 
-**Operator:** {OPERATOR_NAME}  
+**Operator:** {OPERATOR_NAME}
 **Contact:** {CONTACT_EMAIL}
 
 These Terms govern access to SellerDrafts. By creating an account or accepting an updated version, you accept these Terms and the Privacy Policy. If you use SellerDrafts for an organization, you confirm that you can bind that organization.
@@ -73,7 +73,7 @@ PRIVACY_MARKDOWN = f"""
 
 **Effective date:** {TERMS_EFFECTIVE_DATE}
 
-**Data controller/operator:** {OPERATOR_NAME}  
+**Data controller/operator:** {OPERATOR_NAME}
 **Privacy contact:** {CONTACT_EMAIL}
 
 ### 1. Information collected
