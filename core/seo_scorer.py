@@ -25,14 +25,12 @@ AMAZON_DISALLOWED_TITLE_CHARACTERS = set("!$?_{}^¬¦")
 
 class SEOScorer:
     @staticmethod
-    def _status(score: int | float, feedback: list[str], *, has_risky_claim: bool = False) -> str:
+    def _status(has_content: bool, feedback: list[str], *, has_risky_claim: bool = False) -> str:
         if has_risky_claim:
             return "Verify"
-        if not score:
+        if not has_content:
             return "Missing"
-        if score >= 85 and not feedback:
-            return "Pass"
-        return "Review"
+        return "Review" if feedback else "Pass"
 
     @staticmethod
     def score_title(title: str, primary_keyword: str, platform: str = "etsy") -> dict[str, object]:
@@ -103,9 +101,7 @@ class SEOScorer:
             "limit": limit,
             "keyword_present": bool(keyword_lower and keyword_lower in title_lower),
             "heuristic_only": True,
-            "status": SEOScorer._status(
-                max(0, min(100, score)), feedback, has_risky_claim=bool(risky)
-            ),
+            "status": SEOScorer._status(bool(title.strip()), feedback, has_risky_claim=bool(risky)),
         }
 
     @staticmethod
@@ -170,7 +166,7 @@ class SEOScorer:
             "primary_keyword_count": primary_count,
             "heuristic_only": True,
             "status": SEOScorer._status(
-                max(0, min(100, score)), feedback, has_risky_claim=bool(risky)
+                bool(description.strip()), feedback, has_risky_claim=bool(risky)
             ),
         }
 
@@ -182,13 +178,8 @@ class SEOScorer:
         feedback: list[str] = []
         tags = [tag.strip().lower() for tag in tags if tag.strip()]
         if platform == "etsy":
-            if len(tags) == 13:
+            if len(tags) == 13 or 1 <= len(tags) < 13:
                 score += 30
-            elif 1 <= len(tags) < 13:
-                score += 15
-                feedback.append(
-                    "Etsy permits up to 13 tags; add only accurate, user-verified terms if available."
-                )
             over_limit = [tag for tag in tags if len(tag) > 20]
             if over_limit:
                 feedback.append(f"{len(over_limit)} Etsy tag(s) exceed 20 characters.")
@@ -213,7 +204,7 @@ class SEOScorer:
             "feedback": feedback,
             "count": len(tags),
             "heuristic_only": True,
-            "status": SEOScorer._status(max(0, min(100, score)), feedback),
+            "status": SEOScorer._status(bool(tags), feedback),
         }
 
     @staticmethod

@@ -13,7 +13,7 @@ from core.config import reset_settings_cache
 from core.copy import forbidden_claims_in
 from core.database import session_scope
 from core.legal import CONTACT_EMAIL, OPERATOR_NAME, TERMS_VERSION
-from core.models import User
+from core.models import UsageEvent, User
 
 
 def _csrf(html: str) -> str:
@@ -89,14 +89,17 @@ def test_public_marketing_routes_are_server_rendered_and_indexable():
         assert "<title>Etsy Listing Draft Generator | SellerDrafts</title>" in home.text
         assert '<link rel="canonical" href="http://localhost:8080/">' in home.text
         assert 'type="application/ld+json"' in home.text
-        assert "Etsy listing drafts that stay inside the facts" in home.text
-        assert "DRAFT — verify before publishing" in home.text
+        assert (
+            "Turn your real product details into Etsy copy you can review in minutes." in home.text
+        )
+        assert "Draft only:</strong> verify every claim before publishing." in home.text
         assert "Streamlit" not in home.text
         assert forbidden_claims_in(home.text) == []
 
         for path in (
             "/pricing",
             "/legal",
+            "/guides",
             "/guides/etsy-listing-draft-checklist",
             "/guides/write-etsy-listings-without-inventing-facts",
             "/guides/etsy-title-description-and-tags-checklist",
@@ -123,10 +126,42 @@ def test_robots_and_sitemap_expose_only_public_canonical_routes():
         assert sitemap.status_code == 200
         assert sitemap.headers["content-type"].startswith("application/xml")
         assert "http://localhost:8080/pricing" in sitemap.text
+        assert "http://localhost:8080/guides" in sitemap.text
         assert "/guides/etsy-listing-draft-checklist" in sitemap.text
         assert "/auth/" not in sitemap.text
         assert "/app/" not in sitemap.text
         assert "<lastmod>" not in sitemap.text
+
+
+def test_authenticated_copy_event_accepts_only_an_allowlisted_text_free_payload():
+    web = _reload_web()
+    with TestClient(web.app) as client:
+        page = client.get("/auth/signup")
+        response = client.post(
+            "/auth/signup",
+            data={
+                "csrf_token": _csrf(page.text),
+                "name": "Event User",
+                "email": "copy-event@example.com",
+                "password": "correct horse battery staple",
+                "accepted_terms": "true",
+            },
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+        assert client.post("/events/product", json={"event": "title_copied"}).status_code == 204
+        assert (
+            client.post(
+                "/events/product",
+                json={"event": "title_copied", "text": "private listing text"},
+            ).status_code
+            == 400
+        )
+
+    with session_scope() as session:
+        events = session.query(UsageEvent).filter_by(kind="title_copied").all()
+    assert len(events) == 1
+    assert events[0].details_json == {}
 
 
 def test_first_touch_attribution_is_not_overwritten_by_later_campaign():
@@ -216,8 +251,8 @@ def test_password_login_still_sets_session_cookie(user_factory):
 def test_google_button_is_hidden_without_configuration():
     web = _reload_web()
     with TestClient(web.app) as client:
-        assert "Sign in with Google" not in client.get("/auth/login").text
-        assert "Sign in with Google" not in client.get("/auth/signup").text
+        assert "Continue with Google" not in client.get("/auth/login").text
+        assert "Create free account with Google" not in client.get("/auth/signup").text
         assert client.get("/auth/google", follow_redirects=False).status_code == 404
 
 
@@ -338,6 +373,47 @@ def test_google_new_account_preserves_allowlisted_plan_and_current_terms(monkeyp
         assert user.terms_version == TERMS_VERSION
 
 
+def test_signup_origin_google_account_starts_in_optimizer(monkeypatch):
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "google-client-id.apps.googleusercontent.com")
+    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "google-client-secret")
+    reset_settings_cache()
+    web = _reload_web()
+
+    with TestClient(web.app) as client:
+        signup = client.get("/auth/signup", follow_redirects=False)
+        assert "Create free account with Google" in signup.text
+        assert "or use email" not in signup.text
+        start = client.get("/auth/google?origin=signup", follow_redirects=False)
+        query = parse_qs(urlparse(start.headers["location"]).query)
+        state = query["state"][0]
+        nonce = query["nonce"][0]
+        packed = web._unpack_google_oauth(state)
+        assert packed is not None and packed["signup_origin"] is True
+        monkeypatch.setattr(
+            web,
+            "_google_token_claims",
+            lambda _code: {
+                "sub": "new-signup-google-subject",
+                "email": "new-signup-google@example.com",
+                "email_verified": True,
+                "name": "New Signup Google User",
+                "nonce": nonce,
+            },
+        )
+        callback = client.get(
+            f"/auth/google/callback?state={state}&code=mock-code",
+            follow_redirects=False,
+        )
+
+    assert callback.status_code == 303
+    assert callback.headers["location"] == "/app/Optimizer"
+    with session_scope() as session:
+        user = session.query(User).filter_by(email="new-signup-google@example.com").one()
+        assert web._post_auth_target(user, "free", signup_origin=True) == "/app/Optimizer"
+    assert web._accepted_terms_target("/app/Optimizer", "") == "/app/Optimizer"
+    assert web._safe_post_terms_target("https://attacker.example") == "/app/"
+
+
 def test_google_link_requires_auth_and_matching_account(monkeypatch, user_factory):
     user_factory(email="link-web@example.com")
     monkeypatch.setenv("GOOGLE_CLIENT_ID", "google-client-id.apps.googleusercontent.com")
@@ -418,7 +494,11 @@ def test_production_password_signup_is_disabled(monkeypatch):
             page = client.get("/auth/signup?plan=starter", headers=request_headers)
             assert page.status_code == 200
             assert 'name="password"' not in page.text
-            assert "Sign in with Google" in page.text
+            assert "Create free account with Google" in page.text
+            assert "Starter selected." in page.text
+            assert "payment happens later in Stripe Checkout" in page.text
+            assert "paused during the founding-seller pilot" not in page.text
+            assert "or use email" not in page.text
             response = client.post(
                 "/auth/signup",
                 data={

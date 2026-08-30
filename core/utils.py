@@ -90,6 +90,11 @@ def get_history(user_id: uuid.UUID, limit: int = 50) -> list[dict[str, Any]]:
                 "best_title": row.best_title,
                 "overall_score": row.overall_score,
                 "grade": row.grade,
+                "status": (
+                    row.full_json.get("scores", {}).get("overall", {}).get("status")
+                    if isinstance(row.full_json, dict)
+                    else None
+                ),
             }
             for row in rows
         ]
@@ -129,14 +134,21 @@ def get_listing_by_id(user_id: uuid.UUID, listing_id: str | uuid.UUID) -> dict[s
         return row.full_json if row is not None else None
 
 
-def update_listing(user_id: uuid.UUID, listing_id: str | uuid.UUID, result: dict[str, Any]) -> bool:
+def update_listing(
+    user_id: uuid.UUID,
+    listing_id: str | uuid.UUID,
+    result: dict[str, Any],
+    *,
+    session: Session | None = None,
+) -> bool:
     """Authorized update helper; never updates a row owned by another user."""
     parsed = _parse_listing_id(listing_id)
     if parsed is None:
         return False
     values = _new_listing(user_id, result)
-    with session_scope() as session:
-        changed = session.execute(
+
+    def execute(working_session: Session) -> bool:
+        changed = working_session.execute(
             update(Listing)
             .where(Listing.id == parsed, Listing.user_id == user_id)
             .values(
@@ -153,6 +165,11 @@ def update_listing(user_id: uuid.UUID, listing_id: str | uuid.UUID, result: dict
             )
         )
         return bool(changed.rowcount)
+
+    if session is not None:
+        return execute(session)
+    with session_scope() as own_session:
+        return execute(own_session)
 
 
 def delete_listing(user_id: uuid.UUID, listing_id: str | uuid.UUID) -> bool:

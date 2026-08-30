@@ -47,10 +47,19 @@ from .auth import (
 from .billing import BillingError, WebhookVerificationError, handle_webhook
 from .config import PROJECT_ROOT, get_settings
 from .database import session_scope
+from .events import PRODUCT_EVENTS, record_product_event
 from .legal import TERMS_VERSION
-from .marketing import PUBLIC_PATHS, guide_page, home_page, legal_page, pricing_page
+from .marketing import (
+    PUBLIC_PATHS,
+    guide_page,
+    guides_page,
+    home_page,
+    legal_page,
+    pricing_page,
+)
 from .migrate import database_at_migration_head
 from .models import User, utcnow
+from .plans import PLANS
 
 settings = get_settings()
 settings.validate_for_production()
@@ -73,6 +82,11 @@ _AUTH_IP_BUCKET_LIMIT = 10_000
 _GOOGLE_OAUTH_MAX_AGE = 600
 _GOOGLE_OAUTH_COOKIE = "sellerdrafts_google_oauth"
 _PLAN_INTENTS = frozenset({"free", "starter", "pro", "agency"})
+_BROWSER_PRODUCT_EVENTS = PRODUCT_EVENTS & {
+    "title_copied",
+    "description_copied",
+    "tags_copied",
+}
 _ip_requests: OrderedDict[str, deque[float]] = OrderedDict()
 _ip_lock = threading.Lock()
 
@@ -151,13 +165,16 @@ def _intent_query(plan: str) -> str:
     }.get(plan, "")
 
 
-def _post_auth_target(user: User, plan: str = "") -> str:
+def _post_auth_target(user: User, plan: str = "", *, signup_origin: bool = False) -> str:
+    default_target = (
+        "/app/Optimizer" if signup_origin and plan not in {"starter", "pro", "agency"} else "/app/"
+    )
     if user.terms_version != TERMS_VERSION:
         next_path = {
             "starter": "/app/About_Pricing",
             "pro": "/app/About_Pricing",
             "agency": "/app/About_Pricing",
-        }.get(plan, "/app/")
+        }.get(plan, default_target)
         query = (
             urlencode({"next": next_path, "plan": plan}) if plan else urlencode({"next": next_path})
         )
@@ -166,7 +183,7 @@ def _post_auth_target(user: User, plan: str = "") -> str:
         "starter": "/app/About_Pricing?plan=starter",
         "pro": "/app/About_Pricing?plan=pro",
         "agency": "/app/About_Pricing?plan=agency",
-    }.get(plan, "/app/")
+    }.get(plan, default_target)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -188,6 +205,11 @@ def public_pricing(request: Request):
 @app.get("/legal", response_class=HTMLResponse)
 def public_legal(request: Request):
     return _public_page_response(request, legal_page())
+
+
+@app.get("/guides", response_class=HTMLResponse)
+def public_guides(request: Request):
+    return _public_page_response(request, guides_page())
 
 
 @app.get("/guides/{slug}", response_class=HTMLResponse)
@@ -222,6 +244,35 @@ def robots_txt():
         f"Sitemap: {settings.public_base_url}/sitemap.xml\n"
     )
     return PlainTextResponse(body, headers={"Cache-Control": "public, max-age=3600"})
+
+
+@app.post("/events/product")
+async def product_event(request: Request):
+    if not request.headers.get("content-type", "").startswith("application/json"):
+        return JSONResponse({"detail": "Invalid event request."}, status_code=415)
+    origin = request.headers.get("origin")
+    if origin and origin.rstrip("/") != settings.public_base_url.rstrip("/"):
+        return JSONResponse({"detail": "Invalid event origin."}, status_code=403)
+    user = _current_request_user(request)
+    if user is None:
+        return JSONResponse({"detail": "Authentication required."}, status_code=401)
+    body = await request.body()
+    if len(body) > 256:
+        return JSONResponse({"detail": "Invalid event request."}, status_code=400)
+    payload: object = None
+    try:
+        payload = await request.json()
+        event_name = payload.get("event") if isinstance(payload, dict) else None
+    except ValueError:
+        event_name = None
+    if (
+        event_name not in _BROWSER_PRODUCT_EVENTS
+        or not isinstance(payload, dict)
+        or set(payload) != {"event"}
+    ):
+        return JSONResponse({"detail": "Invalid event request."}, status_code=400)
+    record_product_event(user.id, event_name)
+    return Response(status_code=204)
 
 
 @app.get("/favicon.ico")
@@ -322,13 +373,14 @@ def _current_request_user(request: Request) -> User | None:
         return get_user_by_session_token(session, token)
 
 
-def _google_button(plan: str = "") -> str:
+def _google_button(plan: str = "", *, signup_origin: bool = False) -> str:
     if not settings.google_configured:
         return ""
-    target = html.escape(f"/auth/google{_intent_query(plan)}", quote=True)
+    query = urlencode({"origin": "signup", "plan": plan}) if signup_origin else _intent_query(plan)
+    target = html.escape(f"/auth/google{query}", quote=True)
+    label = "Create free account with Google" if signup_origin else "Continue with Google"
     return f"""
-<a class="button google" href="{target}">Sign in with Google</a>
-<div class="divider">or use email</div>
+<a class="button google" href="{target}">{label}</a>
 """
 
 
@@ -347,6 +399,7 @@ def _pack_google_oauth(
     mode: str = "login",
     user_id: str = "",
     plan: str = "",
+    signup_origin: bool = False,
 ) -> str:
     return _google_state_serializer().dumps(
         {
@@ -355,6 +408,7 @@ def _pack_google_oauth(
             "mode": mode,
             "user_id": user_id,
             "plan": _plan_intent(plan),
+            "signup_origin": signup_origin,
         }
     )
 
@@ -372,6 +426,7 @@ def _unpack_google_oauth(value: str | None) -> dict[str, str] | None:
         mode = payload.get("mode", "login")
         user_id = payload.get("user_id", "")
         plan = _plan_intent(payload.get("plan"))
+        signup_origin = payload.get("signup_origin", False)
     except (BadData, KeyError, TypeError, ValueError):
         return None
     if (
@@ -379,9 +434,17 @@ def _unpack_google_oauth(value: str | None) -> dict[str, str] | None:
         or not isinstance(nonce, str)
         or mode not in {"login", "link"}
         or not isinstance(user_id, str)
+        or not isinstance(signup_origin, bool)
     ):
         return None
-    return {"state": state, "nonce": nonce, "mode": mode, "user_id": user_id, "plan": plan}
+    return {
+        "state": state,
+        "nonce": nonce,
+        "mode": mode,
+        "user_id": user_id,
+        "plan": plan,
+        "signup_origin": signup_origin,
+    }
 
 
 class _TimeoutSession(requests.Session):
@@ -493,7 +556,7 @@ def _signup_form(*, error: str = "", name: str = "", email: str = "", plan: str 
         error=error,
         name=name,
         email=email,
-        google_button=_google_button(plan),
+        google_button=_google_button(plan, signup_origin=True),
         google_terms=google_terms,
         plan=html.escape(plan, quote=True),
     )
@@ -555,7 +618,8 @@ def google_login(request: Request):
     if user := _current_request_user(request):
         return RedirectResponse(_post_auth_target(user), status_code=303)
     plan = _plan_intent(request.query_params.get("plan"))
-    return _start_google_oauth(request, mode="login", plan=plan)
+    signup_origin = request.query_params.get("origin") == "signup"
+    return _start_google_oauth(request, mode="login", plan=plan, signup_origin=signup_origin)
 
 
 def _start_google_oauth(
@@ -564,6 +628,7 @@ def _start_google_oauth(
     mode: str,
     plan: str = "",
     user: User | None = None,
+    signup_origin: bool = False,
 ) -> RedirectResponse:
     del request
     nonce = secrets.token_urlsafe(32)
@@ -574,6 +639,7 @@ def _start_google_oauth(
         mode=mode,
         user_id=str(user.id) if user else "",
         plan=plan,
+        signup_origin=signup_origin,
     )
     authorization_url = "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(
         {
@@ -675,7 +741,11 @@ def google_callback(request: Request):
     target = (
         "/auth/account?linked=google"
         if packed["mode"] == "link"
-        else _post_auth_target(user, packed["plan"])
+        else _post_auth_target(
+            user,
+            packed["plan"],
+            signup_origin=bool(packed["signup_origin"]),
+        )
     )
     response = RedirectResponse(target, status_code=303)
     _set_session_cookie(response, token)
@@ -690,17 +760,18 @@ def signup_page(request: Request):
     if user := _current_request_user(request):
         return RedirectResponse(_post_auth_target(user, plan), status_code=303)
     if not settings.password_signup_enabled:
-        google = _google_button(plan)
-        creation_note = (
-            "Continue with Google to create an account."
-            if settings.google_configured
-            else "New account creation is temporarily unavailable."
+        google = _google_button(plan, signup_origin=True)
+        plan_note = (
+            f'<p class="account"><strong>{html.escape(PLANS[plan].name)} selected.</strong> '
+            f"You will review it before any charge; payment happens later in Stripe Checkout.</p>"
+            if plan in {"starter", "pro", "agency"}
+            else '<p class="fine">Free account creation requires no card.</p>'
         )
         body = (
-            "<h1>Create your account</h1>"
-            '<p class="note">Email/password registration is paused during the founding-seller '
-            f"pilot. {creation_note} Existing password accounts can "
-            "still sign in.</p>"
+            "<h1>Create your free account</h1>"
+            '<p class="note">Start an editable fact-locked Etsy draft with Google. '
+            "Existing password accounts can still sign in.</p>"
+            f"{plan_note}"
             f"{google}"
             f'<p class="note"><a href="/auth/login{_intent_query(plan)}">Sign in to an existing account</a>.</p>'
             '<p class="fine">By continuing with Google, you accept the '
@@ -726,9 +797,9 @@ def signup(
         return HTMLResponse(
             _page(
                 "Create account",
-                '<h1>Email signup paused</h1><p class="error">New password accounts are '
-                "not available during the founding-seller pilot.</p>"
-                f'<p class="note"><a href="{signup_target}">Use Google to create an account</a> '
+                '<h1>Create a free account with Google</h1><p class="error">This form is not '
+                "available for new accounts.</p>"
+                f'<p class="note"><a href="{signup_target}">Create a free account with Google</a> '
                 'or <a href="/auth/login">sign in to an existing password account</a>.</p>',
             ),
             status_code=403,
@@ -841,6 +912,7 @@ def google_link(request: Request, csrf_token: str = Form(...)):
 def _safe_post_terms_target(value: str | None) -> str:
     return {
         "/app/": "/app/",
+        "/app/Optimizer": "/app/Optimizer",
         "/app/About_Pricing": "/app/About_Pricing",
         "/auth/account": "/auth/account",
     }.get(value or "", "/app/")

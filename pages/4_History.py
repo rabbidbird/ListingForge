@@ -6,12 +6,13 @@ import pandas as pd
 import streamlit as st
 
 from core.auth import require_streamlit_user
+from core.draft_review import draft_export_ready
+from core.events import record_product_event
 from core.ui import (
     configure_page,
     confirm_before_export,
-    copy_button,
     draft_banner,
-    render_export_reminder,
+    render_editable_draft,
     render_sidebar,
 )
 from core.utils import (
@@ -43,17 +44,20 @@ table = pd.DataFrame(
             "Date": row["created_at"][:16].replace("T", " "),
             "Product": row["product_name"],
             "Platform": row["platform"],
-            "Checklist status": "Pass"
-            if row["grade"] == "A"
-            else "Review"
-            if row["grade"] in {"B", "C"}
-            else "Missing",
+            "Checklist status": row.get("status")
+            or (
+                "Pass"
+                if row["grade"] == "A"
+                else "Review"
+                if row["grade"] in {"B", "C"}
+                else "Missing"
+            ),
             "Draft title": row["best_title"],
         }
         for row in history
     ]
 )
-st.dataframe(table, use_container_width=True, hide_index=True)
+st.dataframe(table, width="stretch", hide_index=True)
 
 labels = {
     row["id"]: (f"{row['created_at'][:16].replace('T', ' ')} UTC · {row['product_name'][:70]}")
@@ -69,20 +73,12 @@ if full is None:
     st.error("Draft not found or not authorized.")
 else:
     draft_banner()
-    render_export_reminder()
-    st.subheader(full["best_title"])
-    copy_button(full["best_title"], label="Copy title")
-    st.text_area(
-        "Description",
-        value=full["description"],
-        height=280,
-        key=f"history_description_{selected_id}",
-        disabled=True,
+    render_editable_draft(
+        user,
+        selected_id,
+        full,
+        key_prefix=f"history_{selected_id}",
     )
-    copy_button(full["description"], label="Copy description")
-    tags = ", ".join(full["tags"])
-    st.code(tags, language=None)
-    copy_button(tags, label="Copy tags")
 
     confirm_delete = st.checkbox(
         "I understand this permanently deletes this saved draft.",
@@ -98,14 +94,25 @@ else:
 st.divider()
 st.subheader("Export saved drafts")
 full_results = get_full_history(user.id, limit=500)
-confirmed = confirm_before_export("history")
-if confirmed and full_results:
-    export_frame = export_to_dataframe(full_results)
+blocked_results = [result for result in full_results if not draft_export_ready(result)]
+ready_results = [result for result in full_results if draft_export_ready(result)]
+if blocked_results:
+    st.warning(
+        f"{len(blocked_results)} draft(s) with unresolved edited wording will be left out of "
+        "this download. Review or explicitly verify those drafts to include them later."
+    )
+confirmed = confirm_before_export("history") if ready_results else False
+if confirmed:
+    export_frame = export_to_dataframe(ready_results)
     st.download_button(
-        "Download shown history as CSV",
+        f"Download {len(ready_results)} ready draft(s) as CSV",
         data=export_frame.to_csv(index=False).encode("utf-8"),
         file_name="sellerdrafts_history.csv",
         mime="text/csv",
+        on_click=record_product_event,
+        args=(user.id, "export_completed"),
     )
-elif not confirmed:
+elif ready_results:
     st.caption("Complete all confirmation checks to enable the history download.")
+else:
+    st.caption("No drafts are ready to download yet.")

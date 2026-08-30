@@ -17,6 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .config import get_settings
+from .events import record_product_event
 from .legal import TERMS_VERSION
 from .models import Subscription, User, UserSession, utcnow
 
@@ -98,6 +99,7 @@ def register_user(
         session.rollback()
         raise AuthError("An account with that email already exists.") from exc
     session.add(Subscription(user_id=user.id, plan="free", status="free"))
+    record_product_event(user.id, "signup_completed", session=session)
     session.flush()
     return user
 
@@ -157,6 +159,7 @@ def create_google_user(
         session.rollback()
         raise AuthError("Google sign-in could not be completed.") from exc
     session.add(Subscription(user_id=user.id, plan="free", status="free"))
+    record_product_event(user.id, "signup_completed", session=session)
     session.flush()
     return user
 

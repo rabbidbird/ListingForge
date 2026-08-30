@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 
 import streamlit as st
-import streamlit.components.v1 as components
 
 from .auth import render_account_sidebar
 from .copy import (
@@ -136,9 +135,10 @@ def render_sidebar(user: User | None = None) -> None:
         render_account_sidebar(user)
 
 
-def draft_banner() -> None:
+def draft_banner(*, compact: bool = False) -> None:
+    css_class = "sd-draft-banner sd-draft-banner-compact" if compact else "sd-draft-banner"
     st.markdown(
-        f'<div class="sd-draft-banner" role="alert">{html.escape(DRAFT_BANNER)}</div>',
+        f'<div class="{css_class}" role="alert">{html.escape(DRAFT_BANNER)}</div>',
         unsafe_allow_html=True,
     )
 
@@ -216,11 +216,11 @@ def render_export_reminder() -> None:
 
 def render_public_footer() -> None:
     st.divider()
-    st.markdown("[Home](/) · [Plans & Pricing](/pricing) · [Legal](/legal)")
+    st.markdown("[Home](/) · [Guides](/guides) · [Plans & Pricing](/pricing) · [Legal](/legal)")
     st.caption(FOOTER_CAPTION)
 
 
-def copy_button(text: str, *, label: str = "Copy") -> None:
+def copy_button(text: str, *, label: str = "Copy", event_name: str | None = None) -> None:
     payload = (
         json.dumps(str(text), ensure_ascii=False)
         .replace("<", "\\u003c")
@@ -228,7 +228,20 @@ def copy_button(text: str, *, label: str = "Copy") -> None:
         .replace("&", "\\u0026")
     )
     element_id = f"copy-{uuid.uuid4().hex}"
-    components.html(
+    event_script = ""
+    if event_name:
+        event_payload = json.dumps({"event": event_name})
+        event_script = f"""
+  try {{
+    await fetch("/events/product", {{
+      method: "POST",
+      credentials: "include",
+      headers: {{"Content-Type": "application/json"}},
+      body: {json.dumps(event_payload)}
+    }});
+  }} catch (_) {{ /* Copying must still work if measurement is unavailable. */ }}
+"""
+    st.iframe(
         f"""
 <button id="{element_id}" style="border:1px solid #64748b;border-radius:7px;padding:.45rem .8rem;background:#1e293b;color:#f1f5f9;cursor:pointer">{label}</button>
 <span id="{element_id}-status" style="margin-left:.5rem;color:#94a3b8;font:13px system-ui"></span>
@@ -236,18 +249,164 @@ def copy_button(text: str, *, label: str = "Copy") -> None:
 const button = document.getElementById("{element_id}");
 button.addEventListener("click", async () => {{
   const status = document.getElementById("{element_id}-status");
-  try {{ await navigator.clipboard.writeText({payload}); status.textContent = "{COPY_SUCCESS}"; }}
+  try {{
+    await navigator.clipboard.writeText({payload});
+    status.textContent = "{COPY_SUCCESS}";
+    {event_script}
+  }}
   catch (_) {{ status.textContent = "Copy failed — select the text manually"; }}
 }});
 </script>
 """,
         height=46,
+        width="stretch",
     )
 
 
+def render_editable_draft(
+    user: User,
+    listing_id: str,
+    result: dict[str, Any],
+    *,
+    key_prefix: str,
+) -> None:
+    """Render one authorized saved draft with edit, audit, and copy actions."""
+
+    from .draft_review import recheck_edited_draft
+    from .events import record_product_event
+    from .generation_service import GenerationInputError, regenerate_for_user
+    from .usage import UsageLimitError
+    from .utils import update_listing
+
+    title_key = f"{key_prefix}_title"
+    description_key = f"{key_prefix}_description"
+    tags_key = f"{key_prefix}_tags"
+    verified_key = f"{key_prefix}_verified"
+
+    if st.session_state.pop(f"{key_prefix}_saved_notice", False):
+        st.success("Changes saved and claims re-checked against the original facts.")
+    if st.session_state.pop(f"{key_prefix}_regenerated_notice", False):
+        st.success("Draft regenerated from the original facts and saved.")
+
+    review = result.get("edit_review") if isinstance(result.get("edit_review"), dict) else {}
+    warnings = review.get("warnings") if isinstance(review, dict) else []
+    st.subheader("Saved draft")
+    st.caption(EXPORT_REMINDER)
+    st.markdown(
+        '<section class="sd-output-field"><h3>Title</h3>'
+        f"<div>{html.escape(result['best_title'])}</div></section>",
+        unsafe_allow_html=True,
+    )
+    copy_button(result["best_title"], label="Copy title", event_name="title_copied")
+    description_html = html.escape(result["description"]).replace("\n", "<br>")
+    st.markdown(
+        '<section class="sd-output-field"><h3>Description</h3>'
+        f"<div>{description_html}</div></section>",
+        unsafe_allow_html=True,
+    )
+    copy_button(result["description"], label="Copy description", event_name="description_copied")
+    tag_text = ", ".join(result["tags"])
+    tags_html = "<br>".join(html.escape(tag) for tag in result["tags"])
+    tags_display = tags_html or '<span class="sd-output-empty">No supplied tag phrases fit.</span>'
+    st.markdown(
+        f'<section class="sd-output-field"><h3>Tags</h3><div>{tags_display}</div></section>',
+        unsafe_allow_html=True,
+    )
+    copy_button(tag_text, label="Copy tags", event_name="tags_copied")
+    st.caption("Tags copy as one comma-separated line.")
+
+    with st.expander("Edit and re-check", expanded=bool(warnings)):
+        st.caption(
+            "Edit the saved fields below. SellerDrafts compares saved edits with the original "
+            "fact inventory; unsaved changes are not copied or downloaded."
+        )
+        if warnings:
+            st.warning("This saved edit contains wording that needs confirmation before download.")
+            for warning in warnings:
+                st.markdown(f"- {warning['message']}")
+            if review.get("explicitly_verified"):
+                st.success("You explicitly verified the flagged wording for this saved draft.")
+
+        st.session_state.setdefault(title_key, result["best_title"])
+        st.session_state.setdefault(description_key, result["description"])
+        st.session_state.setdefault(tags_key, "\n".join(result["tags"]))
+
+        with st.form(f"{key_prefix}_edit_form"):
+            edited_title = st.text_input(
+                "Title",
+                max_chars=500,
+                key=title_key,
+            )
+            edited_description = st.text_area(
+                "Description",
+                height=330,
+                key=description_key,
+            )
+            edited_tags = st.text_area(
+                "Tags — one per line",
+                height=180,
+                key=tags_key,
+            )
+            explicitly_verified = st.checkbox(
+                "I verified any newly added wording against this exact product.",
+                help=(
+                    "This confirmation unlocks downloads only after the edited draft is saved "
+                    "and re-checked. It does not certify marketplace compliance."
+                ),
+                key=verified_key,
+            )
+            save_column, revert_column, regenerate_column = st.columns(3)
+            save = save_column.form_submit_button(
+                "Save changes & re-check claims", type="primary", width="stretch"
+            )
+            revert = revert_column.form_submit_button("Revert unsaved changes", width="stretch")
+            regenerate = regenerate_column.form_submit_button(
+                "Regenerate original facts", width="stretch"
+            )
+
+    if revert:
+        for key in (title_key, description_key, tags_key, verified_key):
+            st.session_state.pop(key, None)
+        st.rerun()
+    if regenerate:
+        try:
+            regenerate_for_user(user.id, listing_id)
+            for key in (title_key, description_key, tags_key, verified_key):
+                st.session_state.pop(key, None)
+            st.session_state[f"{key_prefix}_regenerated_notice"] = True
+            st.rerun()
+        except (GenerationInputError, UsageLimitError) as exc:
+            st.error(str(exc))
+        except Exception:
+            st.error("The draft could not be regenerated. Your usage reservation was released.")
+    if save:
+        tags = [line.strip() for line in edited_tags.splitlines() if line.strip()]
+        updated = recheck_edited_draft(
+            result,
+            title=edited_title.strip(),
+            description=edited_description.strip(),
+            tags=tags,
+            explicitly_verified=explicitly_verified,
+        )
+        if update_listing(user.id, listing_id, updated):
+            changed = (
+                edited_title.strip() != result["best_title"]
+                or edited_description.strip() != result["description"]
+                or tags != result["tags"]
+            )
+            if changed:
+                record_product_event(user.id, "draft_edited_saved")
+            for key in (title_key, description_key, tags_key, verified_key):
+                st.session_state.pop(key, None)
+            st.session_state[f"{key_prefix}_saved_notice"] = True
+            st.rerun()
+        else:
+            st.error("Draft not found or not authorized.")
+
+
 def confirm_before_export(key_prefix: str) -> bool:
-    st.subheader("Confirm before export")
-    st.caption("Export stays locked until all three checks are confirmed. " + EXPORT_REMINDER)
+    st.subheader("Confirm before download")
+    st.caption("Downloads stay locked until all three checks are confirmed. " + EXPORT_REMINDER)
     checks = [
         st.checkbox(
             "I checked every factual claim against the actual product.",

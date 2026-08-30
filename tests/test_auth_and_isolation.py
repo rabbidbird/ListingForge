@@ -327,3 +327,83 @@ def test_authenticated_generation_path_saves_private_draft_and_usage(user_factor
     assert result["meta"]["is_draft"] is True
     assert get_listing_by_id(user.id, listing_id)["best_title"] == result["best_title"]
     assert get_usage(user.id)["daily"] == 1
+
+
+def test_edited_draft_is_reaudited_and_only_owner_can_save(user_factory):
+    from core.draft_review import draft_export_ready, recheck_edited_draft
+
+    owner = user_factory(email="edit-owner@example.com")
+    stranger = user_factory(email="edit-stranger@example.com")
+    original = ListingGenerator(use_llm=False).generate_full_listing(
+        product_name="Moon pendant",
+        platform="etsy",
+    )
+    listing_id = save_listing(owner.id, original)
+    edited = recheck_edited_draft(
+        original,
+        title="Sterling moon pendant",
+        description=original["description"],
+        tags=original["tags"],
+        explicitly_verified=False,
+    )
+
+    assert edited["scores"]["overall"]["status"] == "Verify"
+    assert edited["edit_review"]["warnings"]
+    assert draft_export_ready(edited) is False
+    assert update_listing(stranger.id, listing_id, edited) is False
+    assert update_listing(owner.id, listing_id, edited) is True
+    assert get_listing_by_id(owner.id, listing_id)["best_title"] == "Sterling moon pendant"
+
+    verified = recheck_edited_draft(
+        edited,
+        title=edited["best_title"],
+        description=edited["description"],
+        tags=edited["tags"],
+        explicitly_verified=True,
+    )
+    assert draft_export_ready(verified) is True
+
+
+def test_unchanged_generated_section_labels_do_not_trigger_edit_warnings():
+    from core.draft_review import recheck_edited_draft
+
+    original = ListingGenerator(use_llm=False).generate_full_listing(
+        product_name="Moon pendant",
+        item_noun="pendant",
+        color="blue",
+        material="stainless steel",
+        size="18-inch chain",
+        audience="adults",
+        occasion_or_recipient="birthday",
+        platform="etsy",
+    )
+    checked = recheck_edited_draft(
+        original,
+        title=original["best_title"],
+        description=original["description"],
+        tags=original["tags"],
+        explicitly_verified=False,
+    )
+
+    assert checked["edit_review"]["warnings"] == []
+    assert checked["edit_review"]["export_ready"] is True
+
+
+def test_product_event_payloads_store_no_listing_text_or_identity(user_factory):
+    from sqlalchemy import select
+
+    from core.events import record_product_event
+    from core.models import UsageEvent
+
+    user = user_factory(email="event-privacy@example.com")
+    record_product_event(user.id, "draft_edited_saved")
+    with session_scope() as session:
+        event = session.scalar(select(UsageEvent).where(UsageEvent.kind == "draft_edited_saved"))
+
+    assert event is not None
+    assert event.details_json == {}
+    assert event.mode == "product"
+    assert event.provider == "first_party"
+    serialized = str(event.details_json).casefold()
+    assert "event-privacy@example.com" not in serialized
+    assert "listing" not in serialized

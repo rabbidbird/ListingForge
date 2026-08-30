@@ -10,6 +10,7 @@ import streamlit as st
 from core.auth import require_streamlit_user
 from core.config import get_settings
 from core.csv_processor import CSVValidationError, read_csv_bytes, validate_csv_rows
+from core.events import record_product_event
 from core.generation_service import GenerationInputError, generate_for_user
 from core.llm import is_llm_available
 from core.ui import (
@@ -74,6 +75,8 @@ st.download_button(
     data=sample.to_csv(index=False).encode("utf-8"),
     file_name="sellerdrafts_sample.csv",
     mime="text/csv",
+    on_click=record_product_event,
+    args=(user.id, "bulk_sample_downloaded"),
 )
 
 uploaded = st.file_uploader("Upload UTF-8 CSV", type=["csv"])
@@ -89,7 +92,7 @@ if uploaded is not None:
             st.warning("The CSV has headers but no product rows.")
         else:
             st.write(f"Loaded {len(frame)} rows. Preview:")
-            st.dataframe(frame.head(10), use_container_width=True, hide_index=True)
+            st.dataframe(frame.head(10), width="stretch", hide_index=True)
             selected_count = st.number_input(
                 "Rows to process from the top",
                 min_value=1,
@@ -124,6 +127,7 @@ if uploaded is not None:
                             icon="💳",
                         )
                 else:
+                    record_product_event(user.id, "bulk_job_started")
                     results: list[dict] = []
                     errors: list[dict[str, object]] = []
                     progress = st.progress(0)
@@ -157,6 +161,7 @@ if uploaded is not None:
                         "results": results,
                         "errors": errors,
                     }
+                    record_product_event(user.id, "bulk_job_completed")
 
 stored = st.session_state.get("latest_bulk_drafts")
 if stored and stored.get("user_id") == str(user.id):
@@ -174,12 +179,12 @@ if stored and stored.get("user_id") == str(user.id):
             }
             for result in results
         ]
-        st.dataframe(pd.DataFrame(summary), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(summary), width="stretch", hide_index=True)
     else:
         st.warning("No valid drafts were created in the last job.")
     if errors:
         st.subheader("Rows not processed")
-        st.dataframe(pd.DataFrame(errors), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(errors), width="stretch", hide_index=True)
 
     if results:
         st.divider()
@@ -192,6 +197,8 @@ if stored and stored.get("user_id") == str(user.id):
                 file_name="sellerdrafts_bulk_drafts.csv",
                 mime="text/csv",
                 type="primary",
+                on_click=record_product_event,
+                args=(user.id, "export_completed"),
             )
         else:
             st.caption("Complete all confirmation checks to enable the bulk download.")
