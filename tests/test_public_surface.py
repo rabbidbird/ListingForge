@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from streamlit.testing.v1 import AppTest
@@ -213,7 +214,11 @@ def test_guides_index_is_real_and_source_notes_link_to_first_party_docs():
     assert '<link rel="canonical" href="http://localhost:8080/guides">' in index
     assert index.count('class="guide-card"') == 3
     assert 'href="/guides"' in home
-    assert "https://help.etsy.com/" in guide
+    guide_links = re.findall(r'href="([^"]+)"', guide)
+    assert (
+        "https://help.etsy.com/hc/en-us/articles/115015628707-How-to-Create-a-Listing"
+        in guide_links
+    )
 
 
 def test_server_rendered_pricing_keeps_all_plans_and_recommends_starter():
