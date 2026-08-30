@@ -15,6 +15,7 @@ from .llm import generate_with_llm, is_llm_available, source_phrase_catalog
 from .seo_scorer import SEOScorer
 
 PLATFORM_TITLE_LIMITS = {"etsy": 140, "shopify": 70, "amazon": 75}
+ETSY_TITLE_WORD_TARGET = 12
 KNOWN_CATEGORIES = {
     "jewelry",
     "home_decor",
@@ -221,12 +222,16 @@ class ListingGenerator:
 
     @staticmethod
     def _smart_title(text: str) -> str:
-        return " ".join(
-            word
-            if not word.isalpha() or any(char.isupper() for char in word[1:])
-            else word.capitalize()
-            for word in text.split()
-        )
+        minor_words = {"and", "as", "at", "by", "for", "from", "in", "of", "on", "or", "to", "with"}
+        rendered: list[str] = []
+        for index, word in enumerate(text.split()):
+            if not word.isalpha() or any(char.isupper() for char in word[1:]):
+                rendered.append(word)
+            elif index and word.casefold() in minor_words:
+                rendered.append(word.lower())
+            else:
+                rendered.append(word.capitalize())
+        return " ".join(rendered)
 
     @staticmethod
     def _unique_source_tokens(phrases: list[str]) -> list[str]:
@@ -249,6 +254,7 @@ class ListingGenerator:
         cls,
         *,
         product_name: str,
+        primary_phrase: str,
         item_noun: str,
         descriptors: list[str],
         maximum: int,
@@ -261,15 +267,22 @@ class ListingGenerator:
             re.sub(r"[^\w]+", "", token, flags=re.UNICODE).casefold() or token.casefold()
             for token in cls._clean_text(item_noun).split()
         }
-        # Sellers commonly repeat the item noun even when it is already part of the
-        # product name. Preserve their natural phrase order instead of moving that noun
-        # to the front ("Necklace Teardrop Pendant").
-        noun_already_in_product = bool(noun_keys) and noun_keys <= product_keys
-        base_phrases = (
-            [product_name]
-            if noun_already_in_product or not item_noun
-            else [item_noun, product_name]
-        )
+        primary = cls._clean_text(primary_phrase)
+        primary_words = primary.split()
+        primary_fits = bool(primary) and len(primary_words) < 15 and len(primary) <= maximum
+        if primary_fits:
+            # Keep the seller's selected phrase contiguous. Additional supplied words
+            # may follow it, but are never inserted into or substituted inside it.
+            base_phrases = [primary, item_noun, product_name]
+        else:
+            # Sellers commonly repeat the noun inside the product name. Preserve their
+            # phrase order instead of producing "Necklace Teardrop Pendant".
+            noun_already_in_product = bool(noun_keys) and noun_keys <= product_keys
+            base_phrases = (
+                [product_name]
+                if noun_already_in_product or not item_noun
+                else [item_noun, product_name]
+            )
         tokens = cls._unique_source_tokens(base_phrases)
         if len(tokens) > 14:
             tokens = tokens[:14]
@@ -278,6 +291,9 @@ class ListingGenerator:
             for token in tokens
         }
         descriptors_added = 0
+        descriptor_word_limit = (
+            ETSY_TITLE_WORD_TARGET if len(tokens) <= ETSY_TITLE_WORD_TARGET else 14
+        )
         for descriptor in descriptors:
             descriptor_tokens = []
             for token in cls._unique_source_tokens([descriptor]):
@@ -285,7 +301,10 @@ class ListingGenerator:
                 key = key or token.casefold()
                 if key not in used:
                     descriptor_tokens.append((token, key))
-            if not descriptor_tokens or len(tokens) + len(descriptor_tokens) > 14:
+            if (
+                not descriptor_tokens
+                or len(tokens) + len(descriptor_tokens) > descriptor_word_limit
+            ):
                 continue
             candidate_tokens = tokens + [token for token, _key in descriptor_tokens]
             candidate = cls._smart_title(" ".join(candidate_tokens))
@@ -490,8 +509,9 @@ class ListingGenerator:
         if platform == "etsy":
             title = self._etsy_noun_led_title(
                 product_name=product,
+                primary_phrase=primary_keyword.strip(),
                 item_noun=item_noun.strip(),
-                descriptors=[color, material, size, *(features or [])],
+                descriptors=[color, material, size],
                 maximum=PLATFORM_TITLE_LIMITS["etsy"],
             )
             return [title]
@@ -532,18 +552,16 @@ class ListingGenerator:
     ) -> str:
         del category
         del include_emoji
-        product = product_name.strip()
+        product = self._clean_text(product_name)
         features = [feature.strip() for feature in (features or []) if feature.strip()]
-        what_it_is = item_noun.strip() or product
-        lines = [f"{what_it_is}."]
-        if item_noun and product.casefold() != item_noun.strip().casefold():
-            lines.append(product + ".")
+        sentence_end = "" if product.endswith((".", "!", "?")) else "."
+        lines = ["About this item", "", f"{product}{sentence_end}"]
         supplied_details: list[tuple[str, str]] = [
+            ("Item type", item_noun),
             ("Color", color),
             ("Material", material),
             ("Size", size),
         ]
-        supplied_details.extend(("Detail", feature) for feature in features[:8])
         supplied_details.extend(
             [
                 ("Occasion or recipient", occasion_or_recipient),
@@ -551,9 +569,10 @@ class ListingGenerator:
             ]
         )
         visible_details = [(label, value) for label, value in supplied_details if value.strip()]
-        if visible_details:
-            lines.extend(["", "Details:"])
+        if visible_details or features:
+            lines.extend(["", "Product details"])
             lines.extend(f"• {label}: {value}" for label, value in visible_details)
+            lines.extend(f"• {feature}" for feature in features[:8])
         return "\n".join(lines).strip()
 
     @staticmethod
@@ -562,6 +581,95 @@ class ListingGenerator:
         if platform == "etsy" and len(value) > 20:
             return ""
         return value
+
+    @classmethod
+    def _source_tag_phrases(cls, phrase: str, platform: str) -> list[str]:
+        """Return only complete or contiguous source phrases that fit the platform."""
+
+        value = cls._clean_text(phrase)
+        if not value:
+            return []
+        fitted = cls._fit_tag(value, platform)
+        if fitted:
+            return [fitted]
+        if platform != "etsy":
+            return []
+        words = value.split()
+        polarity_words = {
+            word.casefold()
+            for word in re.findall(r"[a-z]+(?:'[a-z]+)?", value, flags=re.IGNORECASE)
+        }
+        if polarity_words & NEGATION_WORDS or re.search(
+            r"(?:[:=\-–—]\s*|\(\s*)(?:false|no|none|not|0)\b", value, flags=re.IGNORECASE
+        ):
+            return []
+
+        # Break an overlong supplied phrase into a small number of readable,
+        # contiguous source phrases. Connector-only edges such as "gift for" are
+        # deliberately excluded; no synonym or new product word is introduced.
+        connectors = {"and", "for", "or", "with"}
+        results: list[str] = []
+
+        def add_candidate(candidate_words: list[str]) -> None:
+            if len(candidate_words) < 2:
+                return
+            if (
+                candidate_words[0].casefold() in connectors
+                or candidate_words[-1].casefold() in connectors
+            ):
+                return
+            candidate = cls._fit_tag(" ".join(candidate_words), platform)
+            if candidate and candidate not in results:
+                results.append(candidate)
+
+        selected_ranges: list[tuple[int, int]] = []
+        index = 0
+        while index < len(words):
+            if not re.search(r"\d", words[index]):
+                index += 1
+                continue
+            end = index + 1
+            while end < len(words) and re.search(r"\d", words[end]):
+                end += 1
+            if end < len(words) and words[end].casefold() not in connectors:
+                end += 1
+            before = len(results)
+            add_candidate(words[index:end])
+            if len(results) > before:
+                selected_ranges.append((index, end))
+            index = end
+
+        connector_indexes = [
+            index for index, word in enumerate(words) if word.casefold() in connectors
+        ]
+        if connector_indexes:
+            start = 0
+            for index in connector_indexes:
+                add_candidate(words[start:index])
+                if words[index].casefold() == "for" and index > 0:
+                    add_candidate(words[index - 1 :])
+                start = index + 1
+            add_candidate(words[start:])
+            if results:
+                return results[:3]
+
+        # With no useful clause boundary, select at most two long, non-overlapping
+        # spans. Every output remains an exact contiguous slice of the supplied phrase.
+        for width in range(len(words) - 1, 1, -1):
+            for start in range(0, len(words) - width + 1):
+                end = start + width
+                if any(
+                    start < existing_end and end > existing_start
+                    for existing_start, existing_end in selected_ranges
+                ):
+                    continue
+                before = len(results)
+                add_candidate(words[start:end])
+                if len(results) > before:
+                    selected_ranges.append((start, end))
+                if len(results) >= 2:
+                    return results
+        return results
 
     def generate_tags(
         self,
@@ -610,30 +718,65 @@ class ListingGenerator:
             extra_keywords=extra_keywords or [],
         )
 
-        # Source-grounded subphrases help fill available slots. Never extract a
-        # shorter affirmative phrase from a supplied negative statement.
-        for phrase in [product, keyword]:
-            phrase_words = {
-                word.casefold()
-                for word in re.findall(r"[a-z]+(?:'[a-z]+)?", phrase, flags=re.IGNORECASE)
-            }
-            if phrase_words & NEGATION_WORDS or re.search(
-                r"(?:[:=\-–—]\s*|\(\s*)(?:false|no|none|not|0)\b", phrase, flags=re.IGNORECASE
-            ):
-                continue
-            words = phrase.split()
-            candidates.extend(" ".join(words[index : index + 2]) for index in range(len(words) - 1))
-
         final: list[str] = []
         for candidate in candidates:
-            tag = self._fit_tag(candidate, platform)
-            if self._contains_unsourced_claims(tag, source_blob):
-                continue
-            if len(tag) >= 2 and tag not in final:
-                final.append(tag)
-            if len(final) >= max_tags:
-                break
+            for tag in self._source_tag_phrases(candidate, platform):
+                if self._contains_unsourced_claims(tag, source_blob):
+                    continue
+                if len(tag) >= 2 and tag not in final:
+                    final.append(tag)
+                if len(final) >= max_tags:
+                    return final
         return final
+
+    @classmethod
+    def _missing_fact_prompts(
+        cls,
+        *,
+        category: str,
+        item_noun: str,
+        color: str,
+        material: str,
+        size: str,
+        features: list[str],
+    ) -> list[str]:
+        normalized = cls._normalize_category(category)
+        prompts: dict[str, list[tuple[bool, str]]] = {
+            "jewelry": [
+                (not item_noun, "What type of jewelry is it? Add the item type only if verified."),
+                (not material, "Which material or metal can you verify for this exact item?"),
+                (not size, "Is there a verified length, fit, or measurement buyers need?"),
+            ],
+            "home_decor": [
+                (not item_noun, "What home décor item is the buyer receiving?"),
+                (not material, "Which material can you verify for this item?"),
+                (not size, "Which verified dimensions would help the buyer place it?"),
+            ],
+            "apparel": [
+                (not item_noun, "What garment or accessory is the buyer receiving?"),
+                (not material, "Which fabric or material can you verify?"),
+                (not size, "Which verified size or measurements apply?"),
+                (not color, "Is there a verified color or variation to include?"),
+            ],
+            "art_prints": [
+                (not item_noun, "What kind of artwork or print is the buyer receiving?"),
+                (not size, "Are verified dimensions available for this format?"),
+                (not features, "Can you verify the format, medium, or included files/items?"),
+            ],
+            "beauty": [
+                (not item_noun, "What beauty item is the buyer receiving?"),
+                (not features, "Which ingredients, amount, or usage details can you verify?"),
+            ],
+            "digital": [
+                (not item_noun, "What type of digital product is the buyer receiving?"),
+                (not features, "Which file types and included files can you verify?"),
+            ],
+            "default": [
+                (not item_noun, "What exactly is the item? Add a plain item type if useful."),
+                (not features, "Which additional buyer-relevant details can you verify?"),
+            ],
+        }
+        return [message for missing, message in prompts[normalized] if missing]
 
     def generate_full_listing(
         self,
@@ -757,27 +900,31 @@ class ListingGenerator:
         if warnings:
             raise RuntimeError("Fact-lock invariant failed; output was not returned.")
 
-        title_score = self.scorer.score_title(best_title, primary_keyword or product_name, platform)
-        description_score = self.scorer.score_description(
-            description, primary_keyword or product_name, extra_keywords, require_draft_notice=False
+        title_phrase_for_score = (
+            primary_keyword if self._phrase_used_in_title(primary_keyword, best_title) else ""
         )
-        tags_score = self.scorer.score_tags(tags, primary_keyword or product_name, platform)
+        title_score = self.scorer.score_title(best_title, title_phrase_for_score, platform)
+        description_score = self.scorer.score_description(
+            description, "", extra_keywords, require_draft_notice=False
+        )
+        tag_phrase_for_score = primary_keyword if primary_keyword else product_name
+        if not any(tag_phrase_for_score.casefold() in tag.casefold() for tag in tags):
+            tag_phrase_for_score = ""
+        tags_score = self.scorer.score_tags(tags, tag_phrase_for_score, platform)
         overall = self.scorer.overall_score(title_score, description_score, tags_score)
         review_notes = list(overall.get("feedback") or [])
         if not review_notes:
             review_notes.append(
                 "No structural warning was found; verify every factual claim and current marketplace rule."
             )
-        missing_fact_prompts = [
-            f"{label} was left blank; add it only if you can verify it."
-            for label, value in (
-                ("Color", color),
-                ("Material", material),
-                ("Size", size),
-                ("Audience", audience),
-            )
-            if not value.strip()
-        ]
+        missing_fact_prompts = self._missing_fact_prompts(
+            category=category,
+            item_noun=item_noun,
+            color=color,
+            material=material,
+            size=size,
+            features=features,
+        )
         return {
             "titles": titles,
             "best_title": best_title,
@@ -800,6 +947,21 @@ class ListingGenerator:
                 "color": color,
                 "size": size,
                 "occasion_or_recipient": occasion_or_recipient,
+                "source_facts": {
+                    "product_name": product_name,
+                    "primary_keyword": primary_keyword,
+                    "category": self._normalize_category(category),
+                    "material": material,
+                    "audience": audience,
+                    "features": features,
+                    "extra_keywords": extra_keywords,
+                    "platform": platform,
+                    "item_noun": item_noun,
+                    "color": color,
+                    "size": size,
+                    "occasion_or_recipient": occasion_or_recipient,
+                    "force_template": force_template,
+                },
                 "source": source,
                 "model": model,
                 "is_draft": True,

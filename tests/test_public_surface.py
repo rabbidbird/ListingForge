@@ -29,7 +29,7 @@ from core.copy import (
 )
 from core.database import session_scope
 from core.legal import CONTACT_EMAIL, OPERATOR_NAME, TERMS_EFFECTIVE_DATE, TERMS_VERSION
-from core.marketing import home_page, legal_page, pricing_page
+from core.marketing import guide_page, guides_page, home_page, legal_page, pricing_page
 from core.models import Listing, Subscription, User
 from core.plans import PLANS
 from core.seo_scorer import SEOScorer
@@ -137,15 +137,16 @@ def test_claim_audit_scoring_does_not_tell_sellers_to_publish_a_draft_notice():
 def test_copy_controls_use_a_compact_post_copy_reminder(monkeypatch):
     rendered: dict[str, object] = {}
 
-    def capture(markup: str, *, height: int) -> None:
-        rendered.update(markup=markup, height=height)
+    def capture(markup: str, *, height: int, width: str) -> None:
+        rendered.update(markup=markup, height=height, width=width)
 
-    monkeypatch.setattr(core.ui.components, "html", capture)
+    monkeypatch.setattr(core.ui.st, "iframe", capture)
     core.ui.copy_button("Draft title", label="Copy title")
 
     assert DRAFT_BANNER not in str(rendered["markup"])
     assert "Copied — still a draft" in str(rendered["markup"])
     assert rendered["height"] == 46
+    assert rendered["width"] == "stretch"
 
 
 def test_generated_output_code_wraps_on_narrow_screens():
@@ -185,7 +186,7 @@ def test_public_home_converts_a_cold_visitor():
         assert "Sign in" in labels
 
 
-def test_server_rendered_home_uses_the_exact_cta_and_a_truthful_static_example():
+def test_server_rendered_home_uses_a_google_matched_cta_and_a_truthful_static_example():
     page = home_page()
 
     assert "<title>Etsy Listing Draft Generator | SellerDrafts</title>" in page
@@ -193,25 +194,40 @@ def test_server_rendered_home_uses_the_exact_cta_and_a_truthful_static_example()
         'name="description" content="Create a free Etsy draft from product facts you supply.'
         in page
     )
-    assert page.count(">Create a free Etsy draft</a>") >= 3
-    assert "Facts supplied:</strong> Blue cotton tote bag; item type: tote bag" in page
-    assert "Title draft:</strong> Blue Cotton Tote Bag 14-inch Handles" in page
-    assert "Description draft:</strong>" in page
-    assert "Tags:</strong> blue cotton tote bag" in page
-    assert "Review items:</strong>" in page
+    assert "Create a free Etsy draft — no card" in page
+    assert 'href="#example"' in page
+    assert "Turn your real product details into Etsy copy you can review in minutes." in page
+    assert "Free account creation uses Google" in page
+    assert "Pressed flower teardrop pendant necklace" in page
+    assert "not supplied → not included" in page
+    assert "Generated draft" in page
+    assert "Review items" in page
     assert "Title options" not in page
 
 
-def test_server_rendered_pricing_keeps_all_plans_and_features_free_and_starter():
+def test_guides_index_is_real_and_source_notes_link_to_first_party_docs():
+    index = guides_page()
+    home = home_page()
+    guide = guide_page("etsy-listing-draft-checklist") or ""
+
+    assert '<link rel="canonical" href="http://localhost:8080/guides">' in index
+    assert index.count('class="guide-card"') == 3
+    assert 'href="/guides"' in home
+    assert "https://help.etsy.com/" in guide
+
+
+def test_server_rendered_pricing_keeps_all_plans_and_recommends_starter():
     page = pricing_page()
 
     for plan in ("Free", "Starter", "Pro", "Agency"):
         assert f"<h2>{plan}</h2>" in page
-    assert page.count('class="price-card featured"') == 2
-    assert 'aria-label="Featured plan: Free"' in page
+    assert page.count('class="price-card featured"') == 1
     assert 'aria-label="Featured plan: Starter"' in page
     assert 'href="/auth/signup?plan=free"' in page
     assert 'href="/auth/signup?plan=starter"' in page
+    assert "Recommended for regular shops" in page
+    assert "Signed webhooks" not in page
+    assert "DRAFT — verify before publishing" not in page
     assert "LLM" not in page
 
 
@@ -243,7 +259,7 @@ def test_public_pricing_matches_backend_limits(monkeypatch):
     assert "LLM-assisted generation unavailable at launch" not in text
     assert "database transactions" not in text
     assert "Create a Free account" in text
-    assert "none are marketed as unlimited" in text
+    assert "No plan is unlimited" in text
     assert forbidden_claims_in(text) == []
 
 
@@ -277,14 +293,36 @@ def test_optimizer_shows_blocked_claim_categories(monkeypatch, user_factory):
     monkeypatch.setattr(core.auth, "require_streamlit_user", lambda: user)
     monkeypatch.setattr(core.auth, "streamlit_current_user", lambda: user)
     monkeypatch.setattr(core.ui, "render_sidebar", lambda _user=None: None)
+    monkeypatch.setattr(core.ui.st, "page_link", lambda *_args, **_kwargs: None)
     app = AppTest.from_file("pages/1_Optimizer.py").run(timeout=15)
     assert not app.exception
     text = _visible_text(app)
     assert "will not invent" in text.lower() or "What SellerDrafts will not invent" in text
     assert "nickel-free" in text
     assert "leaving a field blank" in text.lower()
-    assert DRAFT_BANNER in text
+    assert "Results are always drafts" in text
     assert forbidden_claims_in(text) == []
+
+
+def test_optimizer_shows_a_created_draft_before_the_next_draft_form(monkeypatch, user_factory):
+    user = user_factory()
+    monkeypatch.setattr(core.auth, "require_streamlit_user", lambda: user)
+    monkeypatch.setattr(core.auth, "streamlit_current_user", lambda: user)
+    monkeypatch.setattr(core.ui, "render_sidebar", lambda _user=None: None)
+    monkeypatch.setattr(core.ui.st, "page_link", lambda *_args, **_kwargs: None)
+    app = AppTest.from_file("pages/1_Optimizer.py").run(timeout=15)
+
+    next(item for item in app.text_input if item.label == "Product name *").set_value(
+        "Moon pendant necklace"
+    )
+    next(item for item in app.button if item.label == "Generate fact-locked draft").click()
+    app.run(timeout=15)
+
+    assert not app.exception
+    text = _visible_text(app)
+    assert DRAFT_BANNER in text
+    assert "Saved draft" in text
+    assert any(item.label == "Create another draft" for item in app.expander)
 
 
 def test_readme_stripe_versions_match_the_pinned_integration():

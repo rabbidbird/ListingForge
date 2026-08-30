@@ -33,10 +33,14 @@ render_sidebar(user)
 
 if user is None:
     st.markdown('<p class="sd-eyebrow">Etsy-first listing workflow</p>', unsafe_allow_html=True)
-    st.title("Etsy listing drafts that stay inside the facts")
+    st.title("Turn verified product details into review-ready Etsy copy—without invented claims.")
     st.markdown(f'<p class="sd-lede">{HERO_SUPPORT}</p>', unsafe_allow_html=True)
-    draft_banner()
+    draft_banner(compact=True)
     render_public_ctas(include_plans=False)
+    st.caption(
+        "Founding-seller pilot: Google is currently required to create a new account. "
+        "Existing password accounts can still sign in."
+    )
     st.caption("Create account → template draft → History")
     st.divider()
     render_positioning()
@@ -66,13 +70,13 @@ else:
     render_quota_notice(usage)
     left, middle, right = st.columns(3)
     with left:
-        if st.button("Create one draft", type="primary", use_container_width=True):
+        if st.button("Create one draft", type="primary", width="stretch"):
             st.switch_page("pages/1_Optimizer.py")
     with middle:
-        if st.button("Process a CSV", use_container_width=True):
+        if st.button("Process a CSV", width="stretch"):
             st.switch_page("pages/2_Bulk_Processor.py")
     with right:
-        if st.button("View plans", use_container_width=True):
+        if st.button("View plans", width="stretch"):
             st.switch_page("pages/5_About_Pricing.py")
     st.divider()
     render_how_it_works()

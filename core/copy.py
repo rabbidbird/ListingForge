@@ -15,9 +15,9 @@ PROMISE = (
     "SellerDrafts uses only what you enter, so missing attributes stay missing."
 )
 HERO_SUPPORT = (
-    "Turn verified product facts into an Etsy title, description, and tags; Shopify and "
-    "Amazon-style drafts are available too. SellerDrafts uses only what you enter, leaves "
-    "missing attributes missing, and never publishes for you."
+    "Save time turning verified product details into an editable Etsy title, description, "
+    "and tags. Fact locking keeps missing attributes out; Shopify and Amazon-style drafts "
+    "are available too, and SellerDrafts never publishes for you."
 )
 DRAFT_BANNER = (
     "DRAFT — verify before publishing. Confirm every material, claim, rating, "
@@ -53,7 +53,7 @@ POSITIONING = (
     (
         "Not unlimited",
         "Every plan has documented daily, monthly, and bulk caps. Limits are enforced "
-        "per account. LLM-assisted generation is unavailable at launch.",
+        "per account, so the plan comparison matches the limits enforced in the product.",
     ),
 )
 
@@ -70,8 +70,8 @@ HOW_IT_WORKS = (
     ),
     (
         "3. Review and edit",
-        "Read the draft against the physical product and current marketplace rules. "
-        "The checklist is a structure aid, not a compliance certificate.",
+        "Edit the saved fields, then re-check new wording against the original facts. "
+        "Flagged edits stay export-locked until resolved or explicitly verified.",
     ),
     (
         "4. Export when ready",
@@ -170,10 +170,10 @@ def audit_unverified_claims(
 
 
 PLAN_BLURBS = {
-    "free": "Same generator. Documented Free caps so you can try a real draft.",
-    "starter": "Higher daily and monthly caps for regular single-item listing work.",
-    "pro": "More drafts per day and larger CSV jobs for higher listing volume.",
-    "agency": "Highest documented caps. Every draft still requires human review.",
+    "free": "Try real drafts without adding a payment method.",
+    "starter": "For regular shops creating or refreshing listings each week.",
+    "pro": "For larger catalogs and higher-volume draft work.",
+    "agency": "For the highest-volume bulk workflows and catalog work.",
 }
 
 # Phrases that must never appear as marketing claims on public pages.

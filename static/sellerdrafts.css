@@ -186,6 +186,41 @@ a {
   line-height: 1.55;
 }
 
+.sd-draft-banner-compact {
+  max-width: 760px;
+  padding: 0.7rem 0.9rem;
+  font-size: 0.9rem;
+  font-weight: 620;
+}
+
+.sd-output-field {
+  margin: 1rem 0 0.35rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--sd-line);
+  border-radius: 0.85rem;
+  background: rgba(17, 28, 46, 0.9);
+}
+
+.sd-output-field h3 {
+  margin: 0 0 0.55rem !important;
+  color: var(--sd-text);
+  font-size: 0.95rem;
+  letter-spacing: 0;
+}
+
+.sd-output-field > div {
+  color: #eef5fc;
+  font-size: 0.98rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.sd-output-empty {
+  color: var(--sd-muted);
+  font-style: italic;
+}
+
 .sd-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -229,6 +264,22 @@ a {
   border-radius: 1rem;
   background: #15243a;
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.18);
+}
+
+.sd-pricing-featured {
+  border-color: var(--sd-accent);
+  box-shadow: 0 16px 42px rgba(244, 184, 96, 0.16);
+}
+
+.sd-plan-kicker {
+  min-height: 2.5rem;
+  margin: 0 0 0.35rem;
+  color: var(--sd-accent);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1.35;
+  text-transform: uppercase;
 }
 
 .sd-pricing-card h3 {
@@ -367,6 +418,10 @@ a {
   }
 
   .sd-plan-blurb {
+    min-height: 0;
+  }
+
+  .sd-plan-kicker {
     min-height: 0;
   }
 

@@ -372,7 +372,7 @@ def test_source_measurement_signs_and_mixed_numbers_are_not_cosmetically_rewritt
     assert "-5 Degree" in result["best_title"]
     assert "1 1/2 Inch" in result["best_title"]
     assert "-5 degree" in result["tags"]
-    assert "1 1/2" in result["tags"]
+    assert "1 1/2 inch" in result["tags"]
 
 
 def test_alphanumeric_identifier_casing_is_preserved_in_template_titles():
@@ -383,3 +383,123 @@ def test_alphanumeric_identifier_casing_is_preserved_in_template_titles():
 
     assert "x100" in result["best_title"]
     assert "X100" not in result["best_title"]
+
+
+def test_description_is_structured_and_preserves_complete_supplied_relationships():
+    result = ListingGenerator(use_llm=False).generate_full_listing(
+        product_name="Model x100 wall panel.",
+        item_noun="wall panel",
+        features=["Length: 10 in; weight: 2 lb.", "Not suitable for outdoor use"],
+        platform="etsy",
+    )
+
+    description = result["description"]
+    assert description.startswith("About this item\n\nModel x100 wall panel.")
+    assert "Product details" in description
+    assert "• Length: 10 in; weight: 2 lb." in description
+    assert "• Not suitable for outdoor use" in description
+    assert ".." not in description
+
+
+def test_etsy_title_keeps_a_supplied_primary_phrase_contiguous_when_it_fits():
+    result = ListingGenerator(use_llm=False).generate_full_listing(
+        product_name="Teardrop pendant necklace",
+        primary_keyword="pressed flower necklace",
+        item_noun="pendant necklace",
+        material="stainless steel chain",
+        platform="etsy",
+    )
+
+    assert "pressed flower necklace" in result["best_title"].casefold()
+    assert not any(
+        "primary phrase is absent" in item.casefold()
+        for item in result["scores"]["title"]["feedback"]
+    )
+
+
+def test_overlong_etsy_phrases_use_only_contiguous_supplied_subphrases():
+    phrase = "birthday gift for flower lover"
+    result = ListingGenerator(use_llm=False).generate_full_listing(
+        product_name="Pendant",
+        extra_keywords=[phrase],
+        platform="etsy",
+    )
+
+    phrase_words = phrase.split()
+    allowed = {
+        " ".join(phrase_words[start:end])
+        for start in range(len(phrase_words))
+        for end in range(start + 2, len(phrase_words) + 1)
+        if len(" ".join(phrase_words[start:end])) <= 20
+    }
+    derived = [tag for tag in result["tags"] if tag != "pendant"]
+    assert derived
+    assert set(derived) <= allowed
+    assert all(len(tag) <= 20 for tag in derived)
+    assert "birthday gift for" not in derived
+    assert "birthday gift" in derived
+    assert "flower lover" in derived
+
+
+def test_etsy_title_uses_a_readable_descriptor_word_budget_and_minor_word_casing():
+    result = ListingGenerator(use_llm=False).generate_full_listing(
+        product_name="Celestial moon pendant necklace",
+        primary_keyword="moon pendant necklace",
+        item_noun="pendant necklace",
+        color="deep blue",
+        material="sterling silver and glass",
+        size="18 inch chain",
+        platform="etsy",
+    )
+
+    assert len(result["best_title"].split()) <= 12
+    assert "Silver and Glass" in result["best_title"]
+    assert "Silver And Glass" not in result["best_title"]
+
+
+def test_overlong_gift_phrase_produces_readable_contiguous_tags():
+    phrase = "birthday gift for her"
+    result = ListingGenerator(use_llm=False).generate_full_listing(
+        product_name="Pendant",
+        occasion_or_recipient=phrase,
+        platform="etsy",
+    )
+
+    assert "birthday gift" in result["tags"]
+    assert "gift for her" in result["tags"]
+    assert "birthday gift for" not in result["tags"]
+
+
+def test_overlong_negated_phrase_is_never_split_into_affirmative_tags():
+    result = ListingGenerator(use_llm=False).generate_full_listing(
+        product_name="Pouch",
+        extra_keywords=["not waterproof for outdoor use"],
+        platform="etsy",
+    )
+
+    assert all("waterproof" not in tag for tag in result["tags"])
+
+
+def test_digital_product_prompts_ask_about_files_not_physical_attributes():
+    result = ListingGenerator(use_llm=False).generate_full_listing(
+        product_name="Budget planner download",
+        category="digital",
+        platform="etsy",
+    )
+
+    prompts = " ".join(result["missing_fact_prompts"]).casefold()
+    assert "file" in prompts
+    assert "material" not in prompts
+    assert "size" not in prompts
+    assert "physical" not in prompts
+
+
+def test_fewer_accurate_etsy_tags_can_have_a_clean_status():
+    result = ListingGenerator(use_llm=False).generate_full_listing(
+        product_name="Blue mug",
+        primary_keyword="blue mug",
+        platform="etsy",
+    )
+
+    assert len(result["tags"]) < 13
+    assert result["scores"]["tags"]["status"] == "Pass"

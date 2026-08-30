@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from core.database import session_scope
+from core.events import PRODUCT_EVENTS, aggregate_product_events
 from core.models import Listing, Subscription, User
 from core.plans import ACTIVE_SUBSCRIPTION_STATUSES, PAID_PLANS
 
@@ -69,6 +70,11 @@ def main() -> None:
             f"{row['source']}\t{row['campaign']}\t{row['signups']}\t"
             f"{row['users_with_draft']}\t{row['active_paid']}"
         )
+    with session_scope() as session:
+        event_counts = aggregate_product_events(session, since=args.since)
+    print("\nproduct_event\tcount")
+    for event_name in sorted(PRODUCT_EVENTS):
+        print(f"{event_name}\t{event_counts[event_name]}")
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ import core.ui
 def test_public_home_renders_without_exception():
     app = AppTest.from_file("app.py").run(timeout=15)
     assert not app.exception
-    assert any("Etsy listing drafts" in title.value for title in app.title)
+    assert any("review-ready Etsy copy" in title.value for title in app.title)
 
 
 def test_product_pages_render_without_exception(monkeypatch, user_factory):

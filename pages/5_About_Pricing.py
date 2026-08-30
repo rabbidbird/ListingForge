@@ -14,11 +14,11 @@ from core.billing import (
     get_upgrade_options,
     stripe_enabled,
 )
-from core.copy import PLAN_BLURBS, PROMISE, plan_limit_lines
+from core.copy import PLAN_BLURBS, plan_limit_lines
+from core.events import record_product_event, record_product_event_once
 from core.plans import PAID_PLANS, PLANS
 from core.ui import (
     configure_page,
-    draft_banner,
     render_public_ctas,
     render_public_footer,
     render_quota_notice,
@@ -29,14 +29,15 @@ from core.usage import get_usage
 configure_page("Plans & Pricing", "💳")
 user = streamlit_current_user()
 render_sidebar(user)
+if user is not None and not st.session_state.get("pricing_view_recorded"):
+    record_product_event_once(user.id, "pricing_viewed")
+    st.session_state["pricing_view_recorded"] = True
 
-st.title("Plans and pricing")
-st.write(PROMISE)
+st.title("Choose the draft volume that fits your shop")
 st.write(
-    "All plans use the same fact-locked generator. Paid plans raise documented quotas; "
-    "none are marketed as unlimited. SellerDrafts does not publish listings or promise ranking."
+    "Every plan uses the same fact-locked generator. Start Free, then upgrade when you need "
+    "more drafts or larger CSV jobs. No plan is unlimited or changes the review requirement."
 )
-draft_banner()
 
 checkout_state = st.query_params.get("checkout")
 portal_state = st.query_params.get("portal")
@@ -45,16 +46,16 @@ if selected_plan not in {"starter", "pro", "agency"}:
     selected_plan = ""
 if checkout_state == "success":
     st.success(
-        "Checkout returned successfully. Stripe webhooks apply the paid entitlement in a "
-        "few seconds. Refresh this page if the plan below has not updated yet."
+        "Payment confirmation is processing. Your paid plan should appear here in a few "
+        "seconds; refresh if it has not updated yet."
     )
     st.info("If payment is still processing, Free limits stay in force until Stripe confirms it.")
 elif checkout_state == "cancelled":
     st.info("Checkout was cancelled; your current plan is unchanged.")
 if portal_state == "return":
     st.info(
-        "Returned from the Stripe Customer Portal. Plan changes apply after the signed "
-        "webhook is processed; refresh if the status below looks stale."
+        "Returned from the Stripe Customer Portal. Refresh if a recent plan change is not "
+        "shown below yet."
     )
 
 st.markdown("### Compare plans")
@@ -62,8 +63,16 @@ plan_cards: list[str] = []
 for plan_name in ("free", "starter", "pro", "agency"):
     policy = PLANS[plan_name]
     limits = "".join(f"<li>{html.escape(line)}</li>" for line in plan_limit_lines(plan_name)[:3])
+    featured = plan_name == "starter"
+    use_case = {
+        "free": "Try it first",
+        "starter": "Recommended for regular shops",
+        "pro": "Higher-volume work",
+        "agency": "Highest-volume work",
+    }[plan_name]
     plan_cards.append(
-        '<article class="sd-pricing-card">'
+        f'<article class="sd-pricing-card{" sd-pricing-featured" if featured else ""}">'
+        f'<p class="sd-plan-kicker">{html.escape(use_case)}</p>'
         f"<h3>{html.escape(policy.name)}</h3>"
         f'<p class="sd-plan-price">{html.escape(policy.display_price)}</p>'
         f'<p class="sd-plan-blurb">{html.escape(PLAN_BLURBS[plan_name])}</p>'
@@ -116,10 +125,11 @@ else:
                     f"Choose {option['name']}",
                     key=f"checkout_{option['plan']}",
                     disabled=not stripe_enabled(),
-                    use_container_width=True,
+                    width="stretch",
                 ):
                     try:
                         url = create_checkout_session(user.id, option["plan"])
+                        record_product_event(user.id, "checkout_initiated")
                         st.session_state["stripe_checkout"] = {
                             "user_id": str(user.id),
                             "plan": option["plan"],

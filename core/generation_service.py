@@ -6,10 +6,11 @@ import uuid
 from typing import Any
 
 from .database import session_scope
+from .events import record_product_event, record_product_event_once
 from .generator import ListingGenerator
 from .llm import is_llm_available
 from .usage import complete_generation, fail_generation, reserve_generation
-from .utils import clean_optional_text, save_listing
+from .utils import clean_optional_text, get_listing_by_id, save_listing, update_listing
 
 
 class GenerationInputError(ValueError):
@@ -89,7 +90,31 @@ def generate_for_user(
         with session_scope() as session:
             listing_id = save_listing(user_id, result, session=session)
             complete_generation(event_id, listing_id, session=session)
+            record_product_event_once(user_id, "first_draft_generated", session=session)
         return result, listing_id
     except Exception as exc:
         fail_generation(event_id, type(exc).__name__)
+        record_product_event(user_id, "generation_failed")
+        raise
+
+
+def regenerate_for_user(user_id: uuid.UUID, listing_id: str | uuid.UUID) -> dict[str, Any]:
+    existing = get_listing_by_id(user_id, listing_id)
+    if existing is None:
+        raise GenerationInputError("Draft not found or not authorized.")
+    meta = existing.get("meta") or {}
+    payload = normalize_generation_input(meta.get("source_facts") or meta)
+    llm_requested = is_llm_available() and not payload["force_template"]
+    provider = "llm" if llm_requested else "template"
+    event_id, _plan = reserve_generation(user_id, mode="single", provider=provider)
+    try:
+        result = ListingGenerator(use_llm=llm_requested).generate_full_listing(**payload)
+        with session_scope() as session:
+            if not update_listing(user_id, listing_id, result, session=session):
+                raise GenerationInputError("Draft not found or not authorized.")
+            complete_generation(event_id, uuid.UUID(str(listing_id)), session=session)
+        return result
+    except Exception as exc:
+        fail_generation(event_id, type(exc).__name__)
+        record_product_event(user_id, "generation_failed")
         raise
