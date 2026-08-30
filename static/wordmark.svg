@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 194 40" role="img" aria-labelledby="wordmark-title">
+  <title id="wordmark-title">SellerDrafts</title>
+  <style>
+    @import url("https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,600&amp;display=swap");
+    .name { font: 600 25px "Newsreader", serif; letter-spacing: -0.7px; }
+  </style>
+  <g transform="translate(2 3)">
+    <path d="M4.5.75h14l5.25 5.25v24.25H4.5z" fill="#fffaf0" stroke="#29261f" stroke-width="1.6" stroke-linejoin="round"/>
+    <path d="M18.5.75V6h5.25" fill="none" stroke="#29261f" stroke-width="1.6" stroke-linejoin="round"/>
+    <path d="M8 12h12M8 17h12M8 22h7.5" fill="none" stroke="#9a4e36" stroke-width="1.6" stroke-linecap="round"/>
+  </g>
+  <text class="name" x="36" y="27" fill="#29261f">SellerDrafts</text>
+</svg>
