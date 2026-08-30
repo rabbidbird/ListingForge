@@ -314,16 +314,14 @@ def _page(title: str, body: str) -> str:
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{html.escape(title)} | SellerDrafts</title>
-<style>
-:root{{--ink:#f8fafc;--muted:#a9b7c9;--panel:#111c2e;--line:#26364c;--accent:#f4b860;--accent-dark:#152033}}
-*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;background:radial-gradient(circle at top,#162641 0,#0b1220 42%,#070c14 100%);color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.55}}
-.shell{{width:min(100% - 2rem,520px);margin:0 auto;padding:4vh 0 8vh}}.brand{{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem;color:var(--ink);text-decoration:none;font-weight:800;letter-spacing:-.02em}}.brand span{{display:inline-grid;place-items:center;width:2rem;height:2rem;margin-right:.6rem;border-radius:.65rem;background:var(--accent);color:#182235}}
-main{{padding:clamp(1.35rem,5vw,2.35rem);background:rgba(17,28,46,.96);border:1px solid var(--line);border-radius:1.25rem;box-shadow:0 24px 70px rgba(0,0,0,.32)}}
-h1{{margin:.1rem 0 .5rem;font-size:clamp(1.85rem,6vw,2.45rem);line-height:1.08;letter-spacing:-.04em}}p{{margin:.7rem 0}}label{{display:block;margin:1rem 0 .4rem;font-size:.9rem;font-weight:700}}input[type=text],input[type=email],input[type=password]{{width:100%;padding:.78rem .85rem;border:1px solid #3a4b63;border-radius:.7rem;background:#0b1422;color:#fff;font:inherit;outline:none}}input:focus{{border-color:var(--accent);box-shadow:0 0 0 3px rgba(244,184,96,.15)}}
-button,.button{{display:flex;align-items:center;justify-content:center;width:100%;min-height:46px;margin-top:1.1rem;padding:.72rem 1rem;border:1px solid transparent;border-radius:.72rem;background:var(--accent);color:#182235;font:inherit;font-weight:800;text-decoration:none;cursor:pointer}}button:hover,.button:hover{{filter:brightness(1.04)}}.google{{background:#fff;border-color:#747775;color:#1f1f1f;font-weight:700}}.divider{{display:flex;align-items:center;gap:.8rem;margin:1.25rem 0;color:#8494a9;font-size:.8rem;text-transform:uppercase;letter-spacing:.08em}}.divider:before,.divider:after{{content:"";height:1px;flex:1;background:var(--line)}}
-a{{color:#91c8ff}}.error{{padding:.8rem 1rem;background:#511d27;border:1px solid #8b3443;border-radius:.72rem}}.note{{color:var(--muted);font-size:.9rem}}.check{{display:flex;gap:.65rem;align-items:flex-start;margin-top:1rem}}.check input{{margin-top:.25rem}}.check label{{margin:0;font-weight:500}}.fine{{margin-top:.85rem;color:#8fa0b6;font-size:.78rem;text-align:center}}.account{{padding:1rem;border:1px solid var(--line);border-radius:.8rem;background:#0c1625}}
-@media (max-width:540px){{.shell{{width:min(100% - 1rem,520px);padding-top:.5rem}}main{{border-radius:1rem;padding:1.25rem}}}}
-</style></head><body><div class="shell"><a class="brand" href="/"><strong><span>S</span>SellerDrafts</strong><small>Fact-locked drafts</small></a><main>{body}</main></div></body></html>"""
+<meta name="robots" content="noindex,nofollow">
+<link rel="icon" href="/assets/mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/assets/public.css">
+</head><body class="auth-page"><div class="auth-shell">
+<header class="auth-header"><a class="wordmark" href="/"><img src="/assets/mark.svg" alt="" width="32" height="32"><span>SellerDrafts</span></a><a href="/">Back to site</a></header>
+<div class="auth-layout"><aside class="auth-note"><p class="eyebrow">Etsy listing workbench</p><p class="auth-note-title">If you didn’t type it, it stays out.</p><p>Draft a title, description, and tags. Check the item. Then publish it yourself.</p></aside><main class="auth-card">{body}</main></div>
+<footer class="auth-foot">Draft. You publish.</footer>
+</div></body></html>"""
 
 
 def _csrf_response(title: str, body_template: str, *, status_code: int = 200) -> HTMLResponse:
@@ -496,7 +494,7 @@ def _google_callback_error(message: str, *, status_code: int = 400) -> HTMLRespo
 
 LOGIN_FORM = """
 <h1>Sign in</h1>
-<p class="note">Fact-locked drafts from facts you supply. Return to your private History and plan usage; SellerDrafts never publishes on your behalf.</p>
+<p class="note">Your saved drafts, private History, and plan are waiting. SellerDrafts never publishes on your behalf.</p>
 {error}
 {google_button}
 <form method="post" action="/auth/login">
@@ -512,7 +510,7 @@ LOGIN_FORM = """
 
 SIGNUP_FORM = """
 <h1>Create your account</h1>
-<p class="note">Fact-locked drafts from facts you supply. SellerDrafts does not publish to marketplaces or promise rankings. Start Free, generate an Etsy-first draft, and find it later in private History.</p>
+<p class="note">Start with product facts you can verify. Make an Etsy-first draft, edit it, and find it later in private History. SellerDrafts does not publish to marketplaces.</p>
 {error}
 {google_button}
 <form method="post" action="/auth/signup">
@@ -769,7 +767,7 @@ def signup_page(request: Request):
         )
         body = (
             "<h1>Create your free account</h1>"
-            '<p class="note">Start an editable fact-locked Etsy draft with Google. '
+            '<p class="note">Start with product facts you can verify and make an editable Etsy draft. '
             "Existing password accounts can still sign in.</p>"
             f"{plan_note}"
             f"{google}"

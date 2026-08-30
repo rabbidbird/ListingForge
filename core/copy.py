@@ -9,15 +9,15 @@ from __future__ import annotations
 from .plans import PLANS
 
 PRODUCT_NAME = "SellerDrafts"
-TAGLINE = "Fact-locked product listing drafts from facts you supply"
+TAGLINE = "Etsy drafts from facts you supply"
 PROMISE = (
-    "Etsy sellers can turn verified product facts into a structured title, description, and tags. "
-    "SellerDrafts uses only what you enter, so missing attributes stay missing."
+    "Type the product facts you can verify. SellerDrafts arranges them into an Etsy title, "
+    "description, and tags while leaving missing attributes missing."
 )
 HERO_SUPPORT = (
-    "Save time turning verified product details into an editable Etsy title, description, "
-    "and tags. Fact locking keeps missing attributes out; Shopify and Amazon-style drafts "
-    "are available too, and SellerDrafts never publishes for you."
+    "Etsy copy from the facts you typed: an editable title, description, and tags with missing "
+    "attributes left out. Shopify and Amazon-style drafts are available too. SellerDrafts "
+    "never publishes for you."
 )
 DRAFT_BANNER = (
     "DRAFT — verify before publishing. Confirm every material, claim, rating, "
@@ -32,7 +32,7 @@ EXPORT_REMINDER = (
 )
 COPY_SUCCESS = "Copied — still a draft"
 AUTH_PROMISE = (
-    "Fact-locked drafts from facts you supply. SellerDrafts does not publish to "
+    "Your product facts become editable drafts. SellerDrafts does not publish to "
     "marketplaces or promise ranking."
 )
 FOOTER_CAPTION = (

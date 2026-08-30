@@ -33,7 +33,7 @@ def test_public_signup_sets_httponly_session_cookie():
     with TestClient(web.app) as client:
         page = client.get("/auth/signup")
         assert page.status_code == 200
-        assert "Fact-locked drafts from facts you supply" in page.text
+        assert "Start with product facts you can verify" in page.text
         assert "does not publish to marketplaces" in page.text
         assert "SellerDrafts" in page.text
         response = client.post(
@@ -89,10 +89,9 @@ def test_public_marketing_routes_are_server_rendered_and_indexable():
         assert "<title>Etsy Listing Draft Generator | SellerDrafts</title>" in home.text
         assert '<link rel="canonical" href="http://localhost:8080/">' in home.text
         assert 'type="application/ld+json"' in home.text
-        assert (
-            "Turn your real product details into Etsy copy you can review in minutes." in home.text
-        )
-        assert "Draft only:</strong> verify every claim before publishing." in home.text
+        assert "Etsy copy from the facts you typed." in home.text
+        assert "Draft. You publish.</strong>" in home.text
+        assert "Verify every claim against the real item first." in home.text
         assert "Streamlit" not in home.text
         assert forbidden_claims_in(home.text) == []
 

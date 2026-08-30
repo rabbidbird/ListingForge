@@ -176,18 +176,17 @@ def _page(
 <meta property="og:url" content="{safe_canonical}"><meta property="og:image" content="{html.escape(_url("/assets/og.png"), quote=True)}">
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="{safe_title}">
 <meta name="twitter:description" content="{safe_description}"><meta name="twitter:image" content="{html.escape(_url("/assets/og.png"), quote=True)}">
-<link rel="icon" href="/assets/favicon.ico" sizes="any">
+<link rel="icon" href="/assets/mark.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/assets/public.css">
-<style>pre{{white-space:pre-wrap;overflow-wrap:anywhere}}@media(max-width:600px){{.site-header .wordmark b{{display:none}}.site-header nav{{gap:.5rem}}.nav-links{{gap:.55rem}}.nav-links a:first-child{{display:inline}}.nav-links a:nth-child(3){{display:none}}}}</style>
 <script type="application/ld+json">{schema}</script>
 </head><body>
 <a class="skip-link" href="#main">Skip to content</a>
 <header class="site-header"><nav aria-label="SellerDrafts">
-<a class="wordmark" href="/" aria-label="SellerDrafts home"><span>S</span><b>SellerDrafts</b></a>
+<a class="wordmark" href="/" aria-label="SellerDrafts home"><img src="/assets/mark.svg" alt="" width="32" height="32"><span>SellerDrafts</span></a>
 <div class="nav-links"><a href="/pricing">Plans</a><a href="/guides">Guides</a><a href="/legal">Legal</a><a class="signin" href="/auth/login">Sign in</a></div>
 </nav></header>
 <main id="main">{body}</main>
-<footer><div><a class="wordmark footer-mark" href="/"><span>S</span>SellerDrafts</a><p>Fact-locked starting drafts from facts you supply.</p></div><nav aria-label="Footer"><a href="/guides">Guides</a><a href="/pricing">Plans</a><a href="/legal">Legal</a><a href="/auth/signup">Create a free Etsy draft</a></nav><p class="fine-print">SellerDrafts is operated by Johnson Solutions LLC and is not affiliated with Etsy, Shopify, or Amazon.</p></footer>
+<footer><div><a class="wordmark footer-mark" href="/"><img src="/assets/mark.svg" alt="" width="32" height="32"><span>SellerDrafts</span></a><p>Etsy drafts from facts you supply.</p></div><nav aria-label="Footer"><a href="/guides">Guides</a><a href="/pricing">Plans</a><a href="/legal">Legal</a><a href="/auth/signup">Start a free draft</a></nav><p class="fine-print">SellerDrafts is operated by Johnson Solutions LLC and is not affiliated with Etsy, Shopify, or Amazon.</p></footer>
 </body></html>"""
 
 
@@ -209,30 +208,24 @@ def home_page() -> str:
         force_template=True,
     )
     example_tags = ", ".join(example["tags"])
-    example_reviews = example["scores"]["overall"].get("feedback") or [
-        "No structural warning in this fixture; the seller must still verify every fact."
-    ]
-    review_items = "".join(f"<li>{html.escape(item)}</li>" for item in example_reviews)
     body = f"""
 <section class="hero hero-proof">
-  <div class="hero-copy"><p class="eyebrow">Etsy-first listing workflow</p>
-  <h1>Turn your real product details into Etsy copy you can review in minutes.</h1>
-  <p class="lede">Get an editable title, description, and tags from facts you supply. Missing materials, shipping promises, and claims stay out.</p>
-  <div class="draft-warning compact"><strong>Draft only:</strong> verify every claim before publishing.</div>
+  <div class="hero-copy"><p class="eyebrow">For Etsy sellers</p>
+  <h1>Etsy copy from the facts you typed.</h1>
+  <p class="lede">Start with what you know about the item. SellerDrafts shapes those details into an editable title, description, and tags—and leaves unsupplied claims out.</p>
+  <div class="draft-warning compact"><strong>Draft. You publish.</strong><span> Verify every claim against the real item first.</span></div>
   <div class="actions"><a class="button primary" href="/auth/signup">Create a free Etsy draft — no card</a><a class="button secondary" href="#example">See the example</a></div>
-  <p class="pilot-note">Free account creation uses Google. Existing password accounts can still sign in.</p></div>
-  <aside class="hero-example" aria-label="Example of supplied jewelry facts becoming a draft"><p class="step">SUPPLIED FACTS</p><dl class="source-map"><div><dt>Product</dt><dd>Pressed flower teardrop pendant necklace</dd></div><div><dt>Material</dt><dd>stainless steel chain</dd></div><div><dt>Size</dt><dd>18-inch chain</dd></div><div><dt>Detail</dt><dd>Pendant: 1.25 inches</dd></div><div><dt>Handmade claim</dt><dd>not supplied → not included</dd></div></dl><p class="step">EDITABLE DRAFT</p><p class="example-title">{html.escape(example["best_title"])}</p><p class="example-tags"><strong>Tags:</strong> {html.escape(example_tags)}</p></aside>
+  <p class="pilot-note">New accounts use Google. Existing password accounts can still sign in.</p></div>
+  <aside class="hero-example" id="example" aria-label="Example of supplied jewelry facts becoming a draft"><div class="sheet-heading"><p class="step">Fact sheet</p><span aria-hidden="true">→</span><p class="step">Listing draft</p></div><dl class="source-map"><div><dt>Product</dt><dd>Pressed flower teardrop pendant necklace</dd></div><div><dt>Material</dt><dd>stainless steel chain</dd></div><div><dt>Size</dt><dd>18-inch chain</dd></div><div><dt>Detail</dt><dd>Pendant: 1.25 inches</dd></div><div><dt>Handmade</dt><dd>not supplied</dd></div></dl><div class="draft-slip"><p class="example-title">{html.escape(example["best_title"])}</p><p class="example-tags"><strong>Tags</strong><br>{html.escape(example_tags)}</p></div><p class="omission-note">“Handmade” was not supplied, so it stays out.</p></aside>
 </section>
-<section><p class="eyebrow">How it works</p><h2>Structure the facts. Keep control of the listing.</h2>
-<div class="card-grid three"><article><span class="step">01</span><h3>Supply facts</h3><p>Enter the item name and only details you can verify.</p></article><article><span class="step">02</span><h3>Generate a draft</h3><p>SellerDrafts arranges supplied wording into marketplace-style fields.</p></article><article><span class="step">03</span><h3>Review before publishing</h3><p>Compare every claim with the real product and current marketplace rules.</p></article></div></section>
-<section class="split"><div><p class="eyebrow">Honesty is the feature</p><h2>No silent product facts</h2><p>Materials, certifications, origin, ratings, scarcity, and shipping promises appear only when you supply them. An incomplete draft is safer than confident misinformation.</p></div><div class="panel"><h3>What every draft includes</h3><ul><li>A title built from supplied wording</li><li>A structured description and tags</li><li>A transparent heuristic checklist</li><li>A visible verification warning</li><li>Private account history</li></ul></div></section>
-<section id="example"><p class="eyebrow">Generated example</p><h2>Supplied facts become editable fields—nothing extra.</h2><div class="panel example-panel"><div><h3>Facts supplied</h3><dl class="source-map"><div><dt>Product</dt><dd>Pressed flower teardrop pendant necklace</dd></div><div><dt>Primary phrase</dt><dd>pressed flower necklace</dd></div><div><dt>Color</dt><dd>blue and white</dd></div><div><dt>Material</dt><dd>stainless steel chain</dd></div><div><dt>Size</dt><dd>18-inch chain</dd></div><div><dt>Verified detail</dt><dd>Pendant: 1.25 inches</dd></div><div><dt>Shipping promise</dt><dd>not supplied → not included</dd></div><div><dt>Handmade claim</dt><dd>not supplied → not included</dd></div></dl></div><div><h3>Generated draft</h3><p><strong>Title</strong></p><p>{html.escape(example["best_title"])}</p><p><strong>Description</strong></p><pre>{html.escape(example["description"])}</pre><p><strong>Tags</strong></p><p>{html.escape(example_tags)}</p></div></div><div class="panel review-panel"><h3>Review items</h3><ul>{review_items}</ul><p class="fine-print">This fixture is rendered by the deterministic generator from only the facts shown above. It is not a real listing or a performance claim.</p></div></section>
-<section><p class="eyebrow">Learn before you publish</p><h2>Practical Etsy listing guides</h2><div class="card-grid three">
+<section class="workflow"><div class="section-heading"><p class="eyebrow">The workbench</p><h2>Facts in. Draft out. Your review last.</h2></div><ol class="work-steps"><li><span>01</span><div><h3>Supply facts</h3><p>Enter the item name and only details you can verify.</p></div></li><li><span>02</span><div><h3>Shape the draft</h3><p>SellerDrafts arranges your wording into a title, description, and tags.</p></div></li><li><span>03</span><div><h3>Check the item</h3><p>Compare every claim with the real product before you publish.</p></div></li></ol></section>
+<section class="split"><div><p class="eyebrow">Where it stops</p><h2>If you didn’t enter sterling, it stays out.</h2><p>Materials, origin, ratings, scarcity, and shipping promises only appear when you supply them. Missing information stays visible instead of becoming confident copy.</p></div><div class="ruled-note"><h3>On your draft sheet</h3><ul><li>Editable title, description, and tags</li><li>A plain-language review checklist</li><li>Private account history</li></ul><p>SellerDrafts structures the wording. You verify the item.</p></div></section>
+<section class="guides-section"><p class="eyebrow">Before you publish</p><h2>Useful checks for an Etsy listing.</h2><div class="guide-list">
 <a class="guide-card" href="/guides/etsy-listing-draft-checklist"><h3>Draft checklist</h3><p>Review facts, claims, photos, and shop settings.</p><span>Read guide →</span></a>
 <a class="guide-card" href="/guides/write-etsy-listings-without-inventing-facts"><h3>Write without guessing</h3><p>Turn verified details into structure without adding promises.</p><span>Read guide →</span></a>
 <a class="guide-card" href="/guides/etsy-title-description-and-tags-checklist"><h3>Title, description, and tags</h3><p>Check clarity, accurate details, and current constraints.</p><span>Read guide →</span></a>
 </div></section>
-<section class="closing"><p class="eyebrow">Start Free</p><h2>Create one careful draft before choosing a plan.</h2><p>Free includes 8 drafts per UTC day and 40 per UTC month. Every plan uses the same fact-locked template generator.</p><div class="actions center"><a class="button primary" href="/auth/signup">Create a free Etsy draft</a><a class="text-link" href="/pricing">Compare plans</a></div></section>
+<section class="closing"><div><p class="eyebrow">Try the workbench</p><h2>Make the first draft free.</h2><p>Free includes 8 drafts per UTC day and 40 per UTC month.</p></div><div class="actions"><a class="button primary" href="/auth/signup">Create a free Etsy draft</a><a class="text-link" href="/pricing">Compare plans</a></div></section>
 """
     base = get_settings().public_base_url
     return _page(
@@ -301,15 +294,15 @@ def pricing_page() -> str:
         cards.append(
             f'<article class="price-card{" featured" if featured else ""}"'
             f"{featured_label}"
-            f'><p class="plan-kicker">{use_case}</p><h2>{html.escape(plan.name)}</h2>'
-            f'<p class="price">{html.escape(plan.display_price)}</p>'
-            f"<p>{html.escape(PLAN_BLURBS[key])}</p><ul>{limits}</ul>"
-            f'<a class="button {"primary" if featured else "secondary"}" href="/auth/signup?plan={key}">{action_label}</a></article>'
+            f'><div class="price-plan"><p class="plan-kicker">{use_case}</p><h2>{html.escape(plan.name)}</h2>'
+            f'<p class="price">{html.escape(plan.display_price)}</p></div>'
+            f'<div class="price-copy"><p>{html.escape(PLAN_BLURBS[key])}</p><ul>{limits}</ul></div>'
+            f'<div class="price-action"><a class="button {"primary" if featured else "secondary"}" href="/auth/signup?plan={key}">{action_label}</a></div></article>'
         )
     body = f"""
-<section class="page-hero pricing-hero"><p class="eyebrow">Simple, documented quotas</p><h1>Choose the draft volume that fits your shop.</h1><p class="lede">Every plan creates the same fact-locked Etsy draft. Choose Free to try it, Starter for regular listing work, or a higher volume plan for larger catalogs.</p></section>
-<section class="pricing-grid">{"".join(cards)}</section>
-<section class="panel billing-note"><h2>Clear billing, no surprises</h2><ul><li>Free requires no payment method.</li><li>Paid plans are charged monthly through Stripe Checkout after you choose a plan.</li><li>Manage payment details or cancel in the Stripe Customer Portal.</li></ul><p>Every draft remains editable and requires your review before publishing.</p></section>
+<section class="page-hero pricing-hero"><p class="eyebrow">Plans</p><h1>Pick a pace for your shop.</h1><p class="lede">Every plan makes the same fact-locked Etsy draft. The only difference is how many you can make at once and over time.</p></section>
+<section class="price-list">{"".join(cards)}</section>
+<section class="billing-note"><h2>Billing notes</h2><ul><li>Free requires no payment method.</li><li>Paid plans are charged monthly through Stripe Checkout after you choose a plan.</li><li>Manage payment details or cancel in the Stripe Customer Portal.</li></ul><p>Every draft remains editable and requires your review before publishing.</p></section>
 """
     return _page(
         title="Plans and pricing",
@@ -324,7 +317,7 @@ def pricing_page() -> str:
 
 def legal_page() -> str:
     body = f"""
-<section class="page-hero"><p class="eyebrow">Legal and trust</p><h1>Terms, privacy, and acceptable use</h1><p class="lede">SellerDrafts is operated by {html.escape(OPERATOR_NAME)}. The current contact is shown in each policy below. Legal review remains an operator launch action.</p></section>
+<section class="page-hero legal-hero"><p class="eyebrow">Legal</p><h1>Terms, privacy, and acceptable use</h1><p class="lede">SellerDrafts is operated by {html.escape(OPERATOR_NAME)}. The current contact is shown in each policy below. Legal review remains an operator launch action.</p></section>
 <nav class="legal-index" aria-label="Legal sections"><a href="#terms">Terms</a><a href="#privacy">Privacy</a><a href="#acceptable-use">Acceptable Use</a></nav>
 <article class="legal-copy" id="terms">{markdown_to_safe_html(TERMS_MARKDOWN)}</article>
 <article class="legal-copy" id="privacy">{markdown_to_safe_html(PRIVACY_MARKDOWN)}</article>
