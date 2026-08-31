@@ -195,14 +195,14 @@ def test_server_rendered_home_uses_a_google_matched_cta_and_a_truthful_static_ex
         'name="description" content="Create a free Etsy draft from product facts you supply.'
         in page
     )
-    assert "Create a free Etsy draft — no card" in page
+    assert "Create free draft" in page
     assert 'href="#example"' in page
-    assert "Etsy copy from the facts you typed." in page
+    assert "Write the listing. Don’t invent the metal." in page
     assert "New accounts use Google" in page
     assert "Pressed flower teardrop pendant necklace" in page
-    assert "“Handmade” was not supplied, so it stays out." in page
-    assert "Fact sheet" in page
-    assert "Listing draft" in page
+    assert "was not typed, so it is not in the draft." in page
+    assert "Facts" in page
+    assert "Draft fields" in page
     assert "Title options" not in page
 
 

@@ -1,12 +1,28 @@
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 100 700;
+  font-display: swap;
+  src: url("/assets/fonts/ibm-plex-sans-latin.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/assets/fonts/ibm-plex-mono-latin.woff2") format("woff2");
+}
+
 :root {
-  --sd-bg: #0b1220;
-  --sd-panel: #111c2e;
-  --sd-panel-soft: #152238;
-  --sd-line: #26364c;
-  --sd-text: #f8fafc;
-  --sd-muted: #a9b7c9;
-  --sd-accent: #f4b860;
-  --sd-link: #91c8ff;
+  --sd-bg: #f3ede4;
+  --sd-panel: #fff8f0;
+  --sd-panel-soft: #f3ede4;
+  --sd-line: #c9bba8;
+  --sd-text: #1a1714;
+  --sd-muted: #6b6258;
+  --sd-accent: #9c2f16;
+  --sd-link: #9c2f16;
 }
 
 #MainMenu,
@@ -23,14 +39,14 @@ footer,
 }
 
 [data-testid="stHeader"] {
-  background: rgba(11, 18, 32, 0.84) !important;
-  backdrop-filter: blur(14px);
+  background: rgba(243, 237, 228, 0.96) !important;
+  border-bottom: 1px solid var(--sd-line);
 }
 
 [data-testid="stAppViewContainer"] {
-  background:
-    radial-gradient(circle at 12% 0%, rgba(42, 68, 108, 0.38), transparent 31rem),
-    var(--sd-bg);
+  background: var(--sd-bg);
+  color: var(--sd-text);
+  font-family: "IBM Plex Sans", sans-serif;
 }
 
 .block-container {
@@ -47,16 +63,17 @@ h3 {
 
 h1 {
   max-width: 850px;
-  font-size: clamp(2.25rem, 6vw, 4.8rem) !important;
-  line-height: 1.02 !important;
+  font-size: clamp(2.1rem, 5vw, 3.75rem) !important;
+  line-height: 1.04 !important;
 }
 
 .sd-eyebrow {
   margin: 0 0 0.75rem;
   color: var(--sd-accent);
   font-size: 0.78rem;
-  font-weight: 850;
-  letter-spacing: 0.14em;
+  font-family: "IBM Plex Mono", monospace;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
@@ -89,7 +106,7 @@ a {
   gap: 1rem;
   margin: 0 0 clamp(1.8rem, 4vw, 3.25rem);
   padding: 0.75rem 0;
-  border-bottom: 1px solid var(--sd-line);
+  border-bottom: 2px solid var(--sd-text);
 }
 
 .sd-topbar a {
@@ -126,9 +143,10 @@ a {
   place-items: center;
   width: 2rem;
   height: 2rem;
-  border-radius: 0.65rem;
-  background: var(--sd-accent);
-  color: #182235;
+  border: 1px solid var(--sd-text);
+  border-radius: 0;
+  background: var(--sd-panel);
+  color: var(--sd-accent);
 }
 
 .sd-cta-row {
@@ -146,19 +164,20 @@ a {
   min-height: 46px;
   padding: 0.7rem 1.25rem;
   border: 1px solid var(--sd-line);
-  border-radius: 0.72rem;
+  border-radius: 0;
   font-weight: 750;
   text-decoration: none !important;
 }
 
 .sd-cta-primary {
-  border-color: var(--sd-accent);
-  background: var(--sd-accent);
-  color: #182235 !important;
+  border-color: var(--sd-text);
+  background: var(--sd-text);
+  color: var(--sd-panel) !important;
+  box-shadow: 4px 4px 0 var(--sd-text);
 }
 
 .sd-cta-primary p {
-  color: #182235 !important;
+  color: var(--sd-panel) !important;
 }
 
 .sd-cta-secondary,
@@ -175,12 +194,12 @@ a {
   max-width: 900px;
   margin: 0.9rem 0 1rem;
   padding: 0.95rem 1.1rem;
-  border: 1px solid #324966;
-  border-left: 4px solid var(--sd-accent);
-  border-radius: 0.75rem;
-  background: #17253a;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.2);
-  color: #ffffff;
+  border: 2px solid var(--sd-text);
+  border-left: 7px solid var(--sd-accent);
+  border-radius: 0;
+  background: var(--sd-panel);
+  box-shadow: 4px 4px 0 var(--sd-text);
+  color: var(--sd-text);
   font-size: 0.98rem;
   font-weight: 680;
   line-height: 1.55;
@@ -197,8 +216,8 @@ a {
   margin: 1rem 0 0.35rem;
   padding: 1rem 1.1rem;
   border: 1px solid var(--sd-line);
-  border-radius: 0.85rem;
-  background: rgba(17, 28, 46, 0.9);
+  border-radius: 0;
+  background: var(--sd-panel);
 }
 
 .sd-output-field h3 {
@@ -209,7 +228,8 @@ a {
 }
 
 .sd-output-field > div {
-  color: #eef5fc;
+  color: var(--sd-text);
+  font-family: "IBM Plex Mono", monospace;
   font-size: 0.98rem;
   line-height: 1.6;
   overflow-wrap: anywhere;
@@ -232,9 +252,9 @@ a {
   min-height: 100%;
   padding: clamp(1rem, 3vw, 1.35rem);
   border: 1px solid var(--sd-line);
-  border-radius: 1rem;
-  background: linear-gradient(145deg, rgba(21, 34, 56, 0.96), rgba(13, 23, 39, 0.96));
-  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.14);
+  border-radius: 0;
+  background: var(--sd-panel);
+  box-shadow: 4px 4px 0 var(--sd-text);
 }
 
 .sd-card h3 {
@@ -260,15 +280,16 @@ a {
 .sd-pricing-card {
   min-height: 100%;
   padding: 1.25rem;
-  border: 1px solid #344963;
-  border-radius: 1rem;
-  background: #15243a;
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--sd-text);
+  border-radius: 0;
+  background: var(--sd-panel);
+  box-shadow: 4px 4px 0 var(--sd-text);
 }
 
 .sd-pricing-featured {
   border-color: var(--sd-accent);
-  box-shadow: 0 16px 42px rgba(244, 184, 96, 0.16);
+  border-left: 7px solid var(--sd-accent);
+  box-shadow: 4px 4px 0 var(--sd-text);
 }
 
 .sd-plan-kicker {
@@ -284,7 +305,7 @@ a {
 
 .sd-pricing-card h3 {
   margin: 0 0 0.35rem !important;
-  color: #ffffff;
+  color: var(--sd-text);
   font-size: 1.08rem;
 }
 
@@ -298,7 +319,7 @@ a {
 .sd-plan-blurb {
   min-height: 4.6rem;
   margin: 0 0 1rem;
-  color: #dbe7f4;
+  color: var(--sd-muted);
   font-size: 0.93rem;
   line-height: 1.55;
 }
@@ -311,13 +332,13 @@ a {
 }
 
 .sd-plan-limits li {
-  color: #edf4fb;
+  color: var(--sd-text);
   font-size: 0.9rem;
   line-height: 1.45;
 }
 
 [data-testid="stSidebar"] {
-  background: #0e1828;
+  background: var(--sd-panel);
   border-right: 1px solid var(--sd-line);
 }
 
@@ -326,7 +347,7 @@ a {
 }
 
 [data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] {
-  border-radius: 0.65rem;
+  border-radius: 0;
   color: var(--sd-muted);
   font-weight: 650;
 }
@@ -340,7 +361,7 @@ a {
   display: block;
   margin-top: 0.15rem;
   padding: 0.55rem 0.75rem;
-  border-radius: 0.65rem;
+  border-radius: 0;
   color: var(--sd-muted) !important;
   font-weight: 650;
   text-decoration: none !important;
@@ -355,15 +376,15 @@ a {
 .stButton > button,
 [data-testid="stDownloadButton"] button {
   min-height: 44px;
-  border-radius: 0.72rem !important;
+  border-radius: 0 !important;
   font-weight: 750 !important;
 }
 
 [data-testid="stMetric"] {
   padding: 1rem;
   border: 1px solid var(--sd-line);
-  border-radius: 0.9rem;
-  background: rgba(17, 28, 46, 0.82);
+  border-radius: 0;
+  background: var(--sd-panel);
 }
 
 [data-testid="stCode"] pre,
@@ -374,14 +395,14 @@ a {
 }
 
 [data-testid="stAlert"] {
-  border-radius: 0.85rem;
+  border-radius: 0;
 }
 
 [data-testid="stExpander"],
 [data-testid="stForm"],
 [data-testid="stFileUploader"] {
   border-color: var(--sd-line) !important;
-  border-radius: 0.9rem !important;
+  border-radius: 0 !important;
 }
 
 @media (max-width: 640px) {

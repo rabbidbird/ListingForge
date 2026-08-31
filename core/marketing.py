@@ -182,11 +182,11 @@ def _page(
 </head><body>
 <a class="skip-link" href="#main">Skip to content</a>
 <header class="site-header"><nav aria-label="SellerDrafts">
-<a class="wordmark" href="/" aria-label="SellerDrafts home"><img src="/assets/mark.svg" alt="" width="32" height="32"><span>SellerDrafts</span></a>
-<div class="nav-links"><a href="/pricing">Plans</a><a href="/guides">Guides</a><a href="/legal">Legal</a><a class="signin" href="/auth/login">Sign in</a></div>
+<a class="wordmark" href="/" aria-label="SellerDrafts home"><img src="/assets/wordmark.svg" alt="SellerDrafts" width="188" height="36"></a>
+<div class="nav-links"><a href="/pricing">Plans</a><a href="/legal">Legal</a><a class="signin" href="/auth/login">Sign in</a></div>
 </nav></header>
 <main id="main">{body}</main>
-<footer><div><a class="wordmark footer-mark" href="/"><img src="/assets/mark.svg" alt="" width="32" height="32"><span>SellerDrafts</span></a><p>Etsy drafts from facts you supply.</p></div><nav aria-label="Footer"><a href="/guides">Guides</a><a href="/pricing">Plans</a><a href="/legal">Legal</a><a href="/auth/signup">Start a free draft</a></nav><p class="fine-print">SellerDrafts is operated by Johnson Solutions LLC and is not affiliated with Etsy, Shopify, or Amazon.</p></footer>
+<footer><div><a class="wordmark footer-mark" href="/"><img src="/assets/wordmark.svg" alt="SellerDrafts" width="188" height="36"></a><p>Etsy drafts from facts you supply.</p></div><nav aria-label="Footer"><a href="/guides">Guides</a><a href="/pricing">Plans</a><a href="/legal">Legal</a><a href="/auth/signup">Start a free draft</a></nav><p class="fine-print">SellerDrafts is operated by Johnson Solutions LLC and is not affiliated with Etsy, Shopify, or Amazon.</p></footer>
 </body></html>"""
 
 
@@ -208,24 +208,29 @@ def home_page() -> str:
         force_template=True,
     )
     example_tags = ", ".join(example["tags"])
+    example_description = (
+        "Pressed flower teardrop pendant necklace. Stainless steel chain, blue and white, "
+        "18-inch chain, pendant: 1.25 inches."
+    )
     body = f"""
-<section class="hero hero-proof">
-  <div class="hero-copy"><p class="eyebrow">For Etsy sellers</p>
-  <h1>Etsy copy from the facts you typed.</h1>
-  <p class="lede">Start with what you know about the item. SellerDrafts shapes those details into an editable title, description, and tags—and leaves unsupplied claims out.</p>
-  <div class="draft-warning compact"><strong>Draft. You publish.</strong><span> Verify every claim against the real item first.</span></div>
-  <div class="actions"><a class="button primary" href="/auth/signup">Create a free Etsy draft — no card</a><a class="button secondary" href="#example">See the example</a></div>
-  <p class="pilot-note">New accounts use Google. Existing password accounts can still sign in.</p></div>
-  <aside class="hero-example" id="example" aria-label="Example of supplied jewelry facts becoming a draft"><div class="sheet-heading"><p class="step">Fact sheet</p><span aria-hidden="true">→</span><p class="step">Listing draft</p></div><dl class="source-map"><div><dt>Product</dt><dd>Pressed flower teardrop pendant necklace</dd></div><div><dt>Material</dt><dd>stainless steel chain</dd></div><div><dt>Size</dt><dd>18-inch chain</dd></div><div><dt>Detail</dt><dd>Pendant: 1.25 inches</dd></div><div><dt>Handmade</dt><dd>not supplied</dd></div></dl><div class="draft-slip"><p class="example-title">{html.escape(example["best_title"])}</p><p class="example-tags"><strong>Tags</strong><br>{html.escape(example_tags)}</p></div><p class="omission-note">“Handmade” was not supplied, so it stays out.</p></aside>
+<section class="hero bench-hero">
+  <div class="hero-copy"><p class="eyebrow">For Etsy sellers who already know the facts</p>
+  <h1>Write the listing. Don’t invent the metal.</h1>
+  <p class="lede">Type the product details you can verify. SellerDrafts arranges an editable Etsy title, tags, and description—and leaves every blank alone.</p>
+  <div class="publish-note"><span class="draft-stamp">DRAFT</span><span><strong>Check the item.</strong> You publish.</span></div>
+  <div class="actions"><a class="button primary" href="/auth/signup">Create free draft</a><a class="text-link" href="#example">See a worked example</a></div>
+  <p class="pilot-note">New accounts use Google. No card for the Free plan.</p></div>
+  <aside class="worksheet" id="example" aria-label="Worked example of supplied jewelry facts becoming a draft">
+    <div class="worksheet-top"><span>SELLERDRAFTS / ETSY</span><span>WORKSHEET 001</span></div>
+    <div class="worksheet-title"><p>Listing bench ticket</p><span class="worksheet-stamp">DRAFT</span></div>
+    <div class="worksheet-block facts-block"><p class="field-group-label">Facts</p><dl class="source-map"><div><dt>Product</dt><dd>Pressed flower teardrop pendant necklace</dd></div><div><dt>Material</dt><dd>stainless steel chain</dd></div><div><dt>Color</dt><dd>blue and white</dd></div><div><dt>Size</dt><dd>18-inch chain</dd></div><div><dt>Detail</dt><dd>Pendant: 1.25 inches</dd></div><div><dt>Handmade</dt><dd>not supplied</dd></div></dl></div>
+    <div class="worksheet-block output-block"><p class="field-group-label">Draft fields</p><div class="worksheet-field"><span>Title</span><p>{html.escape(example["best_title"])}</p></div><div class="worksheet-field"><span>Tags</span><p>{html.escape(example_tags)}</p></div><div class="worksheet-field"><span>Description</span><p>{html.escape(example_description)}</p></div></div>
+    <p class="omission-note"><em>Handmade</em> was not typed, so it is not in the draft.</p>
+  </aside>
 </section>
-<section class="workflow"><div class="section-heading"><p class="eyebrow">The workbench</p><h2>Facts in. Draft out. Your review last.</h2></div><ol class="work-steps"><li><span>01</span><div><h3>Supply facts</h3><p>Enter the item name and only details you can verify.</p></div></li><li><span>02</span><div><h3>Shape the draft</h3><p>SellerDrafts arranges your wording into a title, description, and tags.</p></div></li><li><span>03</span><div><h3>Check the item</h3><p>Compare every claim with the real product before you publish.</p></div></li></ol></section>
-<section class="split"><div><p class="eyebrow">Where it stops</p><h2>If you didn’t enter sterling, it stays out.</h2><p>Materials, origin, ratings, scarcity, and shipping promises only appear when you supply them. Missing information stays visible instead of becoming confident copy.</p></div><div class="ruled-note"><h3>On your draft sheet</h3><ul><li>Editable title, description, and tags</li><li>A plain-language review checklist</li><li>Private account history</li></ul><p>SellerDrafts structures the wording. You verify the item.</p></div></section>
-<section class="guides-section"><p class="eyebrow">Before you publish</p><h2>Useful checks for an Etsy listing.</h2><div class="guide-list">
-<a class="guide-card" href="/guides/etsy-listing-draft-checklist"><h3>Draft checklist</h3><p>Review facts, claims, photos, and shop settings.</p><span>Read guide →</span></a>
-<a class="guide-card" href="/guides/write-etsy-listings-without-inventing-facts"><h3>Write without guessing</h3><p>Turn verified details into structure without adding promises.</p><span>Read guide →</span></a>
-<a class="guide-card" href="/guides/etsy-title-description-and-tags-checklist"><h3>Title, description, and tags</h3><p>Check clarity, accurate details, and current constraints.</p><span>Read guide →</span></a>
-</div></section>
-<section class="closing"><div><p class="eyebrow">Try the workbench</p><h2>Make the first draft free.</h2><p>Free includes 8 drafts per UTC day and 40 per UTC month.</p></div><div class="actions"><a class="button primary" href="/auth/signup">Create a free Etsy draft</a><a class="text-link" href="/pricing">Compare plans</a></div></section>
+<section class="workflow"><div class="section-heading"><p class="eyebrow">How a draft is built</p><h2>Three passes. No guessing.</h2></div><ol class="work-steps"><li><span>01</span><div><h3>Write the facts</h3><p>Name the item and enter only details you can check.</p></div></li><li><span>02</span><div><h3>Get the fields</h3><p>SellerDrafts arranges your words into a title, tags, and description.</p></div></li><li><span>03</span><div><h3>Inspect the draft</h3><p>Compare every line with the physical item before publishing.</p></div></li></ol></section>
+<section class="claim-section"><div class="section-heading"><p class="eyebrow">What it will not add</p><h2>Blank means blank.</h2><p>Unsupplied claims stay out of the worksheet.</p></div><ul class="claim-inventory"><li>Materials or metals</li><li>Handmade or origin claims</li><li>Certifications or health claims</li><li>Ratings or bestseller language</li><li>Shipping or returns promises</li><li>Scarcity or stock pressure</li></ul></section>
+<section class="home-plans"><div class="section-heading"><p class="eyebrow">Start at the bench</p><h2>Free first. Starter when the shop gets busy.</h2></div><div class="plan-teaser"><div><span>FREE / $0</span><strong>8 drafts a day · 40 a month</strong><a href="/auth/signup?plan=free">Create a free draft</a></div><div class="starter"><span>STARTER / $12 MONTHLY</span><strong>50 drafts a day · 1,000 a month</strong><a href="/auth/signup?plan=starter">Choose Starter</a></div></div><a class="text-link plans-link" href="/pricing">See Pro, Agency, and full limits →</a></section>
 """
     base = get_settings().public_base_url
     return _page(
@@ -300,8 +305,8 @@ def pricing_page() -> str:
             f'<div class="price-action"><a class="button {"primary" if featured else "secondary"}" href="/auth/signup?plan={key}">{action_label}</a></div></article>'
         )
     body = f"""
-<section class="page-hero pricing-hero"><p class="eyebrow">Plans</p><h1>Pick a pace for your shop.</h1><p class="lede">Every plan makes the same fact-locked Etsy draft. The only difference is how many you can make at once and over time.</p></section>
-<section class="price-list">{"".join(cards)}</section>
+<section class="page-hero pricing-hero"><p class="eyebrow">Plans / monthly</p><h1>Choose the draft limit you need.</h1><p class="lede">Every plan uses the same fact-locked worksheet. Paid plans raise only the daily, monthly, and bulk limits.</p></section>
+<section class="price-list"><div class="price-list-head" aria-hidden="true"><span>Plan</span><span>Use and limits</span><span>Action</span></div>{"".join(cards)}</section>
 <section class="billing-note"><h2>Billing notes</h2><ul><li>Free requires no payment method.</li><li>Paid plans are charged monthly through Stripe Checkout after you choose a plan.</li><li>Manage payment details or cancel in the Stripe Customer Portal.</li></ul><p>Every draft remains editable and requires your review before publishing.</p></section>
 """
     return _page(
@@ -317,7 +322,7 @@ def pricing_page() -> str:
 
 def legal_page() -> str:
     body = f"""
-<section class="page-hero legal-hero"><p class="eyebrow">Legal</p><h1>Terms, privacy, and acceptable use</h1><p class="lede">SellerDrafts is operated by {html.escape(OPERATOR_NAME)}. The current contact is shown in each policy below. Legal review remains an operator launch action.</p></section>
+<section class="page-hero legal-hero"><p class="eyebrow">Legal / current terms</p><h1>Terms, privacy, and acceptable use</h1><p class="lede">SellerDrafts is operated by <strong>{html.escape(OPERATOR_NAME)}</strong>. Contact details and the current terms are shown below.</p></section>
 <nav class="legal-index" aria-label="Legal sections"><a href="#terms">Terms</a><a href="#privacy">Privacy</a><a href="#acceptable-use">Acceptable Use</a></nav>
 <article class="legal-copy" id="terms">{markdown_to_safe_html(TERMS_MARKDOWN)}</article>
 <article class="legal-copy" id="privacy">{markdown_to_safe_html(PRIVACY_MARKDOWN)}</article>

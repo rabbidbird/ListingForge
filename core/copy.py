@@ -9,15 +9,15 @@ from __future__ import annotations
 from .plans import PLANS
 
 PRODUCT_NAME = "SellerDrafts"
-TAGLINE = "Etsy drafts from facts you supply"
+TAGLINE = "Etsy listing drafts from facts you typed"
 PROMISE = (
-    "Type the product facts you can verify. SellerDrafts arranges them into an Etsy title, "
-    "description, and tags while leaving missing attributes missing."
+    "Write the product facts you can verify. SellerDrafts arranges them into an Etsy title, "
+    "tags, and description while every blank stays blank."
 )
 HERO_SUPPORT = (
-    "Etsy copy from the facts you typed: an editable title, description, and tags with missing "
-    "attributes left out. Shopify and Amazon-style drafts are available too. SellerDrafts "
-    "never publishes for you."
+    "For sellers who already know the item: make an editable title, tags, and description "
+    "without filling missing attributes. Shopify and Amazon-style drafts remain available. "
+    "SellerDrafts never publishes for you."
 )
 DRAFT_BANNER = (
     "DRAFT — verify before publishing. Confirm every material, claim, rating, "

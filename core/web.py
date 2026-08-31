@@ -318,9 +318,9 @@ def _page(title: str, body: str) -> str:
 <link rel="icon" href="/assets/mark.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/assets/public.css">
 </head><body class="auth-page"><div class="auth-shell">
-<header class="auth-header"><a class="wordmark" href="/"><img src="/assets/mark.svg" alt="" width="32" height="32"><span>SellerDrafts</span></a><a href="/">Back to site</a></header>
-<div class="auth-layout"><aside class="auth-note"><p class="eyebrow">Etsy listing workbench</p><p class="auth-note-title">If you didn’t type it, it stays out.</p><p>Draft a title, description, and tags. Check the item. Then publish it yourself.</p></aside><main class="auth-card">{body}</main></div>
-<footer class="auth-foot">Draft. You publish.</footer>
+<header class="auth-header"><a class="wordmark" href="/"><img src="/assets/wordmark.svg" alt="SellerDrafts" width="188" height="36"></a><a href="/">Back to site</a></header>
+<div class="auth-layout"><aside class="auth-note"><p class="ticket-label">ACCOUNT WORK TICKET</p><p class="auth-note-title">If you didn’t type it, it stays out.</p><dl class="auth-ticket"><div><dt>INPUT</dt><dd>Verified product facts</dd></div><div><dt>OUTPUT</dt><dd>Editable Etsy draft</dd></div><div><dt>FINAL CHECK</dt><dd>Yours</dd></div></dl></aside><main class="auth-card">{body}</main></div>
+<footer class="auth-foot"><span class="draft-stamp">DRAFT</span> Check the item. You publish.</footer>
 </div></body></html>"""
 
 
@@ -494,7 +494,7 @@ def _google_callback_error(message: str, *, status_code: int = 400) -> HTMLRespo
 
 LOGIN_FORM = """
 <h1>Sign in</h1>
-<p class="note">Your saved drafts, private History, and plan are waiting. SellerDrafts never publishes on your behalf.</p>
+<p class="note">Open your private draft history and plan. SellerDrafts never publishes for you.</p>
 {error}
 {google_button}
 <form method="post" action="/auth/login">
@@ -766,8 +766,8 @@ def signup_page(request: Request):
             else '<p class="fine">Free account creation requires no card.</p>'
         )
         body = (
-            "<h1>Create your free account</h1>"
-            '<p class="note">Start with product facts you can verify and make an editable Etsy draft. '
+            "<h1>Create a free draft account</h1>"
+            '<p class="note">Bring product facts you can check. Leave with an editable Etsy draft. '
             "Existing password accounts can still sign in.</p>"
             f"{plan_note}"
             f"{google}"
