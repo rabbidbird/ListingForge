@@ -89,9 +89,9 @@ def test_public_marketing_routes_are_server_rendered_and_indexable():
         assert "<title>Etsy Listing Draft Generator | SellerDrafts</title>" in home.text
         assert '<link rel="canonical" href="http://localhost:8080/">' in home.text
         assert 'type="application/ld+json"' in home.text
-        assert "Etsy copy from the facts you typed." in home.text
-        assert "Draft. You publish.</strong>" in home.text
-        assert "Verify every claim against the real item first." in home.text
+        assert "Write the listing. Don’t invent the metal." in home.text
+        assert "Check the item.</strong> You publish." in home.text
+        assert "leaves every blank alone" in home.text
         assert "Streamlit" not in home.text
         assert forbidden_claims_in(home.text) == []
 

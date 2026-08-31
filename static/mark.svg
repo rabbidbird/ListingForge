@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-labelledby="mark-title">
-  <title id="mark-title">SellerDrafts ruled draft slip</title>
-  <path d="M6.5 3.75h13.75l5.25 5.25v19.25h-19z" fill="#fffaf0" stroke="#29261f" stroke-width="1.75" stroke-linejoin="round"/>
-  <path d="M20.25 3.75V9h5.25" fill="none" stroke="#29261f" stroke-width="1.75" stroke-linejoin="round"/>
-  <path d="M10 14.25h12M10 18.5h12M10 22.75h7.5" fill="none" stroke="#9a4e36" stroke-width="1.75" stroke-linecap="round"/>
+  <title id="mark-title">SellerDrafts jewelry tag</title>
+  <path d="M4.5 7.5h14.25L27.5 16v8.5H4.5z" fill="none" stroke="#1A1714" stroke-width="2.25" stroke-linejoin="round"/>
+  <circle cx="19.15" cy="14.45" r="2" fill="none" stroke="#1A1714" stroke-width="2"/>
+  <path d="M8.5 20h8.5" fill="none" stroke="#9C2F16" stroke-width="2" stroke-linecap="square"/>
 </svg>
