@@ -38,10 +38,13 @@ Windows virtual environment: Python 3.12.13. Supported container: pinned Python
 .\.venv\Scripts\python.exe -m pytest --tb=short
 ```
 
-The final regression run passed 219 tests on Windows; the preceding pinned Linux
-container run passed all 215 tests then present. The final signup refinement adds callback coverage for every plan and
+The complete regression suite passed 220 tests on pinned Python 3.11 in GitHub CI;
+the Windows run passed all 219 tests then present, before the last mandatory-title
+regression was added. Signup coverage includes callback handling for every plan and
 uses `AppTest.from_file("app.py").switch_page(...)` for new Google signup → draft →
-History; its focused run passed 14 tests. Final CI must verify the complete PR head.
+History. [PR #26 checks](https://github.com/rabbidbird/ListingForge/pull/26/checks)
+identify the verified delivery revision, including lint, migrations, tests,
+PostgreSQL container/edge smoke, and CodeQL.
 Windows reported 12 SQLite datetime-adapter deprecation warnings; the Python 3.11
 container run had none. No test or permission was weakened to obtain a pass.
 
@@ -73,8 +76,12 @@ Artifacts are local in `output/playwright/` (not public repository attachments):
   → confirmed CSV download → History was exercised. The title `5 X 5 Inch Print`
   and complete `20 cm chain with 10 cm extension` survived the workflow.
 - Keyboard Tab reached the public skip link. Product form controls, confirmation
-  labels, and navigation were exercised. Browser warnings concerned Streamlit's
-  iframe sandbox combination; no public font CSP errors remained after the fix.
+  labels, and navigation were exercised. Mobile app captions and the navigation
+  toggle use readable paper-theme colors; large-text app width also remains 390
+  pixels. Browser warnings included Streamlit's iframe sandbox combination;
+  no public font CSP errors remained after the fix. Local container rebuilds
+  interrupted the browser WebSocket and produced transient 502/connection errors;
+  the subsequent running edge smoke passed.
 
 OAuth tests follow the HTML anchor for no plan and all supported plans, then test
 the token-exchange and Google ID-token-verification library boundaries with

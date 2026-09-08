@@ -105,6 +105,10 @@ li,
   color: var(--sd-muted) !important;
 }
 
+[data-testid="stCaptionContainer"] {
+  opacity: 1 !important;
+}
+
 a {
   color: var(--sd-link);
 }
