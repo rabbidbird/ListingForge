@@ -274,6 +274,8 @@ class ListingGenerator:
         # a separate noun phrase in that case.
         noun_already_in_product = bool(noun_keys) and noun_keys <= product_keys
         product_value = cls._clean_text(product_name)
+        if len(cls._smart_title(product_value)) > maximum:
+            return "DRAFT Product Listing"
         noun_value = cls._clean_text(item_noun)
         base_phrases = [product_value]
         if item_noun and not noun_already_in_product:

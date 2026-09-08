@@ -25,6 +25,17 @@ AMAZON_DISALLOWED_TITLE_CHARACTERS = set("!$?_{}^¬¦")
 
 class SEOScorer:
     @staticmethod
+    def validate_title(title: str, platform: str = "etsy") -> list[str]:
+        if not title.strip():
+            return ["Add a nonempty verified product title before export."]
+        if title.strip() == "DRAFT Product Listing":
+            return ["Replace the placeholder with a shorter verified product title before export."]
+        limit = TITLE_LIMITS.get(platform, 70)
+        if platform != "shopify" and len(title) > limit:
+            return [f"Title exceeds the current {platform.title()} checklist limit ({limit})."]
+        return []
+
+    @staticmethod
     def validate_tags(tags: list[str], platform: str = "etsy") -> list[str]:
         """Return current platform-rule violations without changing seller wording."""
 
@@ -77,6 +88,7 @@ class SEOScorer:
         keyword_lower = primary_keyword.lower().strip() if primary_keyword else ""
         length = len(title)
         limit = TITLE_LIMITS.get(platform, 70)
+        validation_errors = SEOScorer.validate_title(title, platform)
         if 1 <= length <= limit:
             score += 30
         else:
@@ -90,6 +102,7 @@ class SEOScorer:
                     f"Title exceeds the current {platform.title()} checklist limit ({limit})."
                 )
 
+        feedback.extend(error for error in validation_errors if error not in feedback)
         word_count = len(re.findall(r"\b\w+\b", title))
         if platform == "etsy" and word_count <= 15:
             score += 15
@@ -136,6 +149,7 @@ class SEOScorer:
             "feedback": feedback,
             "length": length,
             "limit": limit,
+            "validation_errors": validation_errors,
             "keyword_present": bool(keyword_lower and keyword_lower in title_lower),
             "heuristic_only": True,
             "status": SEOScorer._status(bool(title.strip()), feedback, has_risky_claim=bool(risky)),

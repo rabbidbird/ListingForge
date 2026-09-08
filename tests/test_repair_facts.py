@@ -10,6 +10,26 @@ from core.generator import ListingGenerator
 from core.utils import export_to_dataframe, get_listing_by_id, save_listing
 
 
+def test_overlong_mandatory_product_requires_a_shorter_title_not_optional_descriptors():
+    result = ListingGenerator(use_llm=False).generate_full_listing(
+        product_name="Very detailed verified product description " * 5,
+        material="stainless steel",
+        color="blue",
+        platform="etsy",
+    )
+    assert result["best_title"] == "DRAFT Product Listing"
+    assert result["scores"]["title"]["status"] != "Pass"
+    assert not draft_export_ready(result)
+    checked = recheck_edited_draft(
+        result,
+        title="",
+        description=result["description"],
+        tags=result["tags"],
+        explicitly_verified=True,
+    )
+    assert not draft_export_ready(checked)
+
+
 def test_generation_keeps_repeated_dimension_tokens_and_negation_scope():
     result = ListingGenerator(use_llm=False).generate_full_listing(
         product_name="5 x 5 inch print",

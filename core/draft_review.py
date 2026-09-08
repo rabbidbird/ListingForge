@@ -249,14 +249,13 @@ def recheck_edited_draft(
         }
         for message in scorer.validate_tags(tags, platform)
     ]
-    title_limit = scorer.score_title(title, "", platform).get("limit", 70)
-    if platform != "shopify" and len(title) > int(title_limit):
+    for error in scorer.validate_title(title, platform):
         validation_warnings.append(
             {
                 "kind": "platform_validation",
                 "phrase": "title",
                 "category": "Platform validation",
-                "message": f"Title exceeds the current {platform.title()} checklist limit ({title_limit}).",
+                "message": error,
             }
         )
     warnings.extend(validation_warnings)
@@ -302,8 +301,7 @@ def recheck_edited_draft(
 def draft_export_ready(result: dict[str, Any]) -> bool:
     platform = str(result.get("platform") or "etsy")
     title = str(result.get("best_title") or "")
-    title_limit = SEOScorer.score_title(title, "", platform).get("limit", 70)
-    if (platform != "shopify" and len(title) > int(title_limit)) or SEOScorer.validate_tags(
+    if SEOScorer.validate_title(title, platform) or SEOScorer.validate_tags(
         list(result.get("tags") or []), platform
     ):
         return False
