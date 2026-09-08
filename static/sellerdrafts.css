@@ -38,6 +38,12 @@ footer,
   display: flex !important;
 }
 
+[data-testid="stExpandSidebarButton"] button,
+[data-testid="stExpandSidebarButton"] span,
+[data-testid="stHeader"] button {
+  color: var(--sd-text) !important;
+}
+
 [data-testid="stHeader"] {
   background: rgba(243, 237, 228, 0.96) !important;
   border-bottom: 1px solid var(--sd-line);
@@ -93,6 +99,10 @@ p,
 li,
 [data-testid="stCaptionContainer"] {
   color: var(--sd-muted);
+}
+
+[data-testid="stCaptionContainer"] p {
+  color: var(--sd-muted) !important;
 }
 
 a {
