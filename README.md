@@ -61,7 +61,12 @@ Campaign links may include `utm_source`, `utm_medium`, `utm_campaign`, `utm_cont
 python -m scripts.acquisition_report --since 2026-08-27
 ```
 
-The report measures signups, users with at least one draft, and users who are currently active on a paid plan. It does not measure visits, Checkout starts, or completed Checkouts.
+The report separates legacy draft/current-plan aggregates from unique first-draft,
+first output action, second activity session, observed day-7 return, verified live
+paid conversion, and recurring generation-error measures. Marked fixtures and
+unclassified historical accounts are excluded by default. It does not prove
+clipboard contents, completed file transfers, or marketplace publishing. See
+[measurement definitions and observation limits](docs/MEASUREMENT.md).
 
 The intended customer channels are `support@sellerdrafts.com` and `privacy@sellerdrafts.com`. Before any public promotion, manually send and receive a test through each channel and confirm the published mailbox routing and reply process; do not treat aliases as working merely because they appear in copy.
 

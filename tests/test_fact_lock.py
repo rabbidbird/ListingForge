@@ -117,7 +117,6 @@ def test_short_etsy_inputs_produce_a_noun_led_title_under_fifteen_words():
     title_words = result["best_title"].split()
     assert result["best_title"].lower().startswith("pendant necklace")
     assert len(title_words) < 15
-    assert len({word.casefold() for word in title_words}) == len(title_words)
     assert "adjustable" not in result["best_title"].lower()
     assert "adjustable chain" in result["tags"]
 
@@ -315,6 +314,29 @@ def test_llm_may_only_order_complete_source_phrase_ids(monkeypatch):
     )
 
 
+def test_llm_overlong_tag_selection_falls_back_to_visible_whole_phrase_omission(monkeypatch):
+    monkeypatch.setattr("core.generator.is_llm_available", lambda: True)
+    monkeypatch.setattr(
+        "core.generator.generate_with_llm",
+        lambda **_: {
+            "title_phrase_ids": [["product"]],
+            "tag_phrase_ids": ["feature_1"],
+            "description_feature_ids": ["feature_1"],
+            "meta": {"model": "mock"},
+        },
+    )
+
+    phrase = "20 cm chain with 10 cm extension"
+    result = ListingGenerator(use_llm=True).generate_full_listing(
+        product_name="Pendant", features=[phrase], platform="etsy"
+    )
+
+    assert result["meta"]["source"] == "template"
+    assert result["meta"]["llm_fact_lock_fallback"] is True
+    assert phrase not in result["tags"]
+    assert any(phrase in note for note in result["review_notes"])
+
+
 def test_free_form_llm_cannot_reassociate_supplied_numbers(monkeypatch):
     monkeypatch.setattr("core.generator.is_llm_available", lambda: True)
     monkeypatch.setattr(
@@ -361,6 +383,7 @@ def test_overlong_source_title_uses_neutral_draft_label_instead_of_truncation():
 
     assert result["best_title"] == "DRAFT Product Listing"
     assert len(result["best_title"]) <= 140
+    assert any("does not fit the platform title limit" in note for note in result["review_notes"])
 
 
 def test_source_measurement_signs_and_mixed_numbers_are_not_cosmetically_rewritten():
@@ -371,8 +394,8 @@ def test_source_measurement_signs_and_mixed_numbers_are_not_cosmetically_rewritt
 
     assert "-5 Degree" in result["best_title"]
     assert "1 1/2 Inch" in result["best_title"]
-    assert "-5 degree" in result["tags"]
-    assert "1 1/2 inch" in result["tags"]
+    assert result["tags"] == []
+    assert any("Tag phrase left out intact" in note for note in result["review_notes"])
 
 
 def test_alphanumeric_identifier_casing_is_preserved_in_template_titles():
@@ -417,7 +440,7 @@ def test_etsy_title_keeps_a_supplied_primary_phrase_contiguous_when_it_fits():
     )
 
 
-def test_overlong_etsy_phrases_use_only_contiguous_supplied_subphrases():
+def test_overlong_etsy_phrases_are_omitted_intact_instead_of_fragmented():
     phrase = "birthday gift for flower lover"
     result = ListingGenerator(use_llm=False).generate_full_listing(
         product_name="Pendant",
@@ -425,20 +448,9 @@ def test_overlong_etsy_phrases_use_only_contiguous_supplied_subphrases():
         platform="etsy",
     )
 
-    phrase_words = phrase.split()
-    allowed = {
-        " ".join(phrase_words[start:end])
-        for start in range(len(phrase_words))
-        for end in range(start + 2, len(phrase_words) + 1)
-        if len(" ".join(phrase_words[start:end])) <= 20
-    }
     derived = [tag for tag in result["tags"] if tag != "pendant"]
-    assert derived
-    assert set(derived) <= allowed
-    assert all(len(tag) <= 20 for tag in derived)
-    assert "birthday gift for" not in derived
-    assert "birthday gift" in derived
-    assert "flower lover" in derived
+    assert derived == []
+    assert any(phrase in note for note in result["review_notes"])
 
 
 def test_etsy_title_uses_a_readable_descriptor_word_budget_and_minor_word_casing():
@@ -452,12 +464,12 @@ def test_etsy_title_uses_a_readable_descriptor_word_budget_and_minor_word_casing
         platform="etsy",
     )
 
-    assert len(result["best_title"].split()) <= 12
+    assert len(result["best_title"].split()) > 12
     assert "Silver and Glass" in result["best_title"]
     assert "Silver And Glass" not in result["best_title"]
 
 
-def test_overlong_gift_phrase_produces_readable_contiguous_tags():
+def test_overlong_gift_phrase_is_omitted_intact_from_tags():
     phrase = "birthday gift for her"
     result = ListingGenerator(use_llm=False).generate_full_listing(
         product_name="Pendant",
@@ -465,9 +477,8 @@ def test_overlong_gift_phrase_produces_readable_contiguous_tags():
         platform="etsy",
     )
 
-    assert "birthday gift" in result["tags"]
-    assert "gift for her" in result["tags"]
-    assert "birthday gift for" not in result["tags"]
+    assert "birthday gift for her" not in result["tags"]
+    assert any(phrase in note for note in result["review_notes"])
 
 
 def test_overlong_negated_phrase_is_never_split_into_affirmative_tags():

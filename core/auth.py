@@ -17,7 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .config import get_settings
-from .events import record_product_event
+from .events import record_product_event, record_return_activity
 from .legal import TERMS_VERSION
 from .models import Subscription, User, UserSession, utcnow
 
@@ -87,6 +87,7 @@ def register_user(
         email=normalized_email,
         name=clean_name,
         password_hash=password_hash,
+        is_test_fixture=not get_settings().is_production,
         email_verified_at=None if get_settings().email_verification_required else now,
         terms_accepted_at=now,
         terms_version=TERMS_VERSION,
@@ -147,6 +148,7 @@ def create_google_user(
         password_hash=hash_password(secrets.token_urlsafe(48)),
         google_subject=clean_subject,
         google_email=normalized_email,
+        is_test_fixture=not get_settings().is_production,
         email_verified_at=now,
         terms_accepted_at=now,
         terms_version=TERMS_VERSION,
@@ -267,6 +269,7 @@ def _token_hash(token: str) -> str:
 def create_user_session(session: Session, user_id: uuid.UUID) -> str:
     token = secrets.token_urlsafe(48)
     now = utcnow()
+    record_return_activity(user_id, session=session, now=now)
     session.add(
         UserSession(
             user_id=user_id,
@@ -300,8 +303,10 @@ def get_user_by_session_token(
     last_seen = auth_session.last_seen_at
     if last_seen.tzinfo is None:
         last_seen = last_seen.replace(tzinfo=UTC)
-    if touch and (now - last_seen).total_seconds() >= 3600:
-        auth_session.last_seen_at = now
+    if touch:
+        record_return_activity(user.id, session=session, now=now)
+        if (now - last_seen).total_seconds() >= 60:
+            auth_session.last_seen_at = now
     return user
 
 

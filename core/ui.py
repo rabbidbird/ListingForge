@@ -220,7 +220,14 @@ def render_public_footer() -> None:
     st.caption(FOOTER_CAPTION)
 
 
-def copy_button(text: str, *, label: str = "Copy", event_name: str | None = None) -> None:
+def copy_button(
+    text: str,
+    *,
+    label: str = "Copy",
+    event_name: str | None = None,
+    user_id: uuid.UUID | None = None,
+    listing_id: str = "",
+) -> None:
     payload = (
         json.dumps(str(text), ensure_ascii=False)
         .replace("<", "\\u003c")
@@ -229,8 +236,15 @@ def copy_button(text: str, *, label: str = "Copy", event_name: str | None = None
     )
     element_id = f"copy-{uuid.uuid4().hex}"
     event_script = ""
-    if event_name:
-        event_payload = json.dumps({"event": event_name})
+    if event_name and user_id and listing_id:
+        from .events import copy_event_ticket
+
+        event_payload = json.dumps(
+            {
+                "event": event_name,
+                "ticket": copy_event_ticket(user_id, listing_id, event_name),
+            }
+        )
         event_script = f"""
   try {{
     await fetch("/events/product", {{
@@ -297,14 +311,26 @@ def render_editable_draft(
         f"<div>{html.escape(result['best_title'])}</div></section>",
         unsafe_allow_html=True,
     )
-    copy_button(result["best_title"], label="Copy title", event_name="title_copied")
+    copy_button(
+        result["best_title"],
+        label="Copy title",
+        event_name="title_copied",
+        user_id=user.id,
+        listing_id=listing_id,
+    )
     description_html = html.escape(result["description"]).replace("\n", "<br>")
     st.markdown(
         '<section class="sd-output-field"><h3>Description</h3>'
         f"<div>{description_html}</div></section>",
         unsafe_allow_html=True,
     )
-    copy_button(result["description"], label="Copy description", event_name="description_copied")
+    copy_button(
+        result["description"],
+        label="Copy description",
+        event_name="description_copied",
+        user_id=user.id,
+        listing_id=listing_id,
+    )
     tag_text = ", ".join(result["tags"])
     tags_html = "<br>".join(html.escape(tag) for tag in result["tags"])
     tags_display = tags_html or '<span class="sd-output-empty">No supplied tag phrases fit.</span>'
@@ -312,7 +338,13 @@ def render_editable_draft(
         f'<section class="sd-output-field"><h3>Tags</h3><div>{tags_display}</div></section>',
         unsafe_allow_html=True,
     )
-    copy_button(tag_text, label="Copy tags", event_name="tags_copied")
+    copy_button(
+        tag_text,
+        label="Copy tags",
+        event_name="tags_copied",
+        user_id=user.id,
+        listing_id=listing_id,
+    )
     st.caption("Tags copy as one comma-separated line.")
 
     with st.expander("Edit and re-check", expanded=bool(warnings)):

@@ -1,5 +1,34 @@
 # SellerDrafts v1 human ship checklist
 
+## September 8, 2026 repair checkpoint
+
+**Hold product expansion and paid acquisition.** Activation, repeat use, actual
+payments, and support load are unknown in this repair session. Passing code checks
+is not business validation. See [repair evidence and rollout](docs/REPAIR_EVIDENCE.md)
+and [measurement definitions](docs/MEASUREMENT.md).
+
+- [x] Rechecked `origin/main` at `d5116320051670519a29bd5f19cb5989d1b473e2`;
+  the working tree was clean and no repository AGENTS.md was present.
+- [x] Pilot-readiness changes are already merged through PR #22. The previous
+  instruction to merge that branch was stale.
+- [x] Implemented rendered signup-link, complete-fact, validator, sample,
+  paginated-history, and content-free measurement repairs on an isolated branch.
+- [x] Verified local regression suite and the supported PostgreSQL/nginx/Streamlit
+  container edge. Exact commands and outcomes are in the evidence record.
+- [ ] Review, merge, and deploy this repair PR. Public `/auth/signup` still emitted
+  the faulty link at the start of this session. No production deployment was made.
+- [ ] Restore the operator's Railway login, then verify the deployed revision,
+  production launch check, rendered Google links for every plan, and existing-account
+  access. `railway status --json` returned Unauthorized; no production variables,
+  customer records, or metrics were read. OAuth code/QA is complete with provider
+  boundary fixtures; no external Google account was created for the owner.
+- [ ] Verify mailbox routing and reply ownership for support and privacy, legal
+  review, and the genuine paid lifecycle. Historical completion claims below are
+  retained as operator records, not fresh verification or permission for outreach.
+
+No price/tier, provider, inference-spending, marketplace-publishing, repository
+visibility, or production account operation is part of this repair.
+
 The code path is automated. Production refuses SQLite, HTTP public URLs, localhost
 origins, insecure cookies, and documented/default session secrets. The container
 image itself defaults to `ENV=production`, so a deploy that omits `ENV` fails
@@ -10,7 +39,7 @@ SQLite / guest-identity line remains only in Git history; do not restore it.
 
 ## Operator-owned boxes
 
-- [ ] **Pilot-readiness branch:** review, merge, and deploy the security/Terms/product changes from `codex/sellerdrafts-pilot-readiness`. Until that deployment is verified, production still reflects the previous behavior.
+- [x] **Pilot-readiness branch:** merged as PR #22. Deployment revision and current production auth/Terms behavior still require the release checks above.
 - [ ] **Auth hardening after deploy:** verify production hides password registration, a direct password-signup POST fails closed, Google creates a genuinely new account, an existing matching-email password account is not auto-linked, and authenticated Account linking succeeds only with the same Google email.
 - [ ] **Terms reacceptance after deploy:** verify an account storing an older Terms version is sent to the current `2026-08-27-v1` acceptance page, cannot enter `/app/` first, and can continue only after the CSRF-protected acceptance POST.
 - [x] **Stripe live cutover:** the live Starter ($12), Pro ($29), and Agency ($79) monthly USD Products/Prices, webhook endpoint, Customer Portal, cancellation flow, and one-subscription limit are configured. Stripe reports live charges and payouts enabled. A least-privilege live restricted API key with Checkout Sessions and Customer Portal write access is stored only in Railway. The active application variables now use the live key, live Price IDs, and live webhook signing secret.
@@ -22,10 +51,10 @@ SQLite / guest-identity line remains only in Git history; do not restore it.
   - `https://sellerdrafts.com/app/About_Pricing?portal=return`
 - [ ] **Legal/business review:** the public legal copy identifies Johnson Solutions LLC, doing business as SellerDrafts, with its contact and jurisdiction (Ohio, United States), and contains no template placeholders. Have the terms and privacy disclosures reviewed for the business before paid public traffic. Do not describe this as a completed legal review until it has occurred. MIT `LICENSE` is not a substitute for the Terms.
 - [ ] **Support and privacy channels:** manually send a test message to and receive a reply from `support@sellerdrafts.com` and `privacy@sellerdrafts.com` through the intended mailbox/channel. Confirm routing, reply ownership, and the process for privacy requests without recording credentials or customer content in this repository.
-- [ ] **First genuine customer lifecycle:** hourly read-only monitoring is active for the first genuine $12 Starter Checkout, successful webhook delivery, entitlement update, portal access, and customer-initiated cancellation/fallback. The live baseline contained no completed Checkout Sessions; do not manufacture one.
+- [ ] **First genuine customer lifecycle:** the earlier operator record describes hourly read-only monitoring for a genuine $12 Starter Checkout, webhook, entitlement, portal, and cancellation/fallback. Its current status and outcomes were not verified in this repair session; do not manufacture a live payment.
 - [ ] **Founding-seller pilot evidence:** manually recruit founding Etsy sellers and record only aggregate activation/payment outcomes. Paid advertising stays paused until security/Terms changes are deployed, legal and email-channel gates pass, and the pilot produces real activation and payment evidence.
 
-## Ordered execution (do this in order)
+## Historical cutover record (not reverified by the September repair)
 
 Use **test-mode Stripe first**. Do not point live Price IDs and a live key at a public domain until step 9.
 
@@ -47,4 +76,7 @@ Use **test-mode Stripe first**. Do not point live Price IDs and a live key at a 
 10. **Complete:** `ENV=production python -m scripts.launch_check` printed `public-traffic gate: pass` and exited `0` against the live Railway configuration.
 11. **Monitoring active:** paid Checkout is enabled and an hourly read-only monitor is watching for the first genuine $12 Starter Checkout, webhook delivery, entitlement update, portal access, and cancellation lifecycle. Do not use test card numbers, Test Clocks, or the operator's own real payment details to test live mode.
 
-The technical public-traffic gate passes and live billing is enabled. That establishes a live technical service, not an approved commercial launch. Keep paid ads paused and do not intentionally promote the unreviewed pilot until the legal/business review and manual support/privacy email-channel gates above pass; the first genuine customer lifecycle remains an observed event, never a synthetic live test.
+The earlier technical public-traffic gate passed and live billing was enabled.
+Those are historical operator records. Current production readiness and customer
+demand are unverified here. Keep paid ads and expansion paused until the current
+release, legal, mailbox, activation, repeat-use, payment, and support checks pass.
