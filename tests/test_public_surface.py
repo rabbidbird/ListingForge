@@ -387,7 +387,7 @@ def test_acquisition_report_returns_aggregate_outcomes_only(user_factory):
         subscription.status = "active"
 
     with session_scope() as session:
-        rows = build_report(session)
+        rows = build_report(session, include_fixtures=True)
 
     row = next(item for item in rows if item["source"] == "x")
     assert row == {

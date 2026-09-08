@@ -452,6 +452,19 @@ button:hover {
 
 .worksheet-field p {
   border-left: 1px solid var(--rule);
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.example-review {
+  padding: 0.7rem 1.15rem;
+  border-top: 1px solid var(--rule);
+  font-size: 0.85rem;
+}
+
+.example-review summary {
+  cursor: pointer;
+  font-weight: 600;
 }
 
 .omission-note {
@@ -1173,6 +1186,8 @@ body > footer .fine-print {
   .site-header nav {
     min-height: 60px;
     gap: 0.85rem;
+    flex-wrap: wrap;
+    padding-block: 0.5rem;
   }
 
   .wordmark img {
@@ -1183,6 +1198,7 @@ body > footer .fine-print {
   .nav-links {
     gap: 0.78rem;
     font-size: 0.77rem;
+    flex-wrap: wrap;
   }
 
   .nav-links .signin {
@@ -1222,7 +1238,21 @@ body > footer .fine-print {
   }
 
   .worksheet-field {
-    grid-template-columns: 74px 1fr;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .worksheet-field p {
+    border-left: 0;
+    border-top: 1px solid var(--rule);
+  }
+
+  .source-map dt {
+    overflow-wrap: anywhere;
+  }
+
+  .worksheet-top,
+  .worksheet-title {
+    flex-wrap: wrap;
   }
 
   .worksheet-field span,

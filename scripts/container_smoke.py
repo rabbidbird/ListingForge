@@ -59,13 +59,14 @@ def main() -> None:
     email = f"container-smoke-{uuid.uuid4().hex}@example.com"
     password = "container smoke password 2026"
     with session_scope() as session:
-        register_user(
+        fixture = register_user(
             session,
             email=email,
             password=password,
             name="Container Smoke",
             accepted_terms=True,
         )
+        fixture.is_test_fixture = True
 
     with httpx.Client(base_url=BASE_URL, follow_redirects=False, timeout=15) as client:
         health = client.get("/healthz")

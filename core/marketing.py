@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 import html
 import json
 from dataclasses import dataclass
 
-from .config import get_settings
+from .config import PROJECT_ROOT, get_settings
 from .copy import PLAN_BLURBS, PRODUCT_NAME, plan_limit_lines
 from .generator import ListingGenerator
 from .legal import (
@@ -18,6 +19,11 @@ from .legal import (
     markdown_to_safe_html,
 )
 from .plans import PLANS
+
+PUBLIC_STYLESHEET = (
+    "/assets/public.css?v="
+    + hashlib.sha256((PROJECT_ROOT / "static" / "public.css").read_bytes()).hexdigest()[:12]
+)
 
 PUBLIC_PATHS = (
     "/",
@@ -177,7 +183,7 @@ def _page(
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="{safe_title}">
 <meta name="twitter:description" content="{safe_description}"><meta name="twitter:image" content="{html.escape(_url("/assets/og.png"), quote=True)}">
 <link rel="icon" href="/assets/mark.svg" type="image/svg+xml">
-<link rel="stylesheet" href="/assets/public.css">
+<link rel="stylesheet" href="{PUBLIC_STYLESHEET}">
 <script type="application/ld+json">{schema}</script>
 </head><body>
 <a class="skip-link" href="#main">Skip to content</a>
@@ -190,12 +196,9 @@ def _page(
 </body></html>"""
 
 
-def home_page() -> str:
-    description = (
-        "Create a free Etsy draft from product facts you supply. Generate a title, description, "
-        "and tags without invented materials, claims, ratings, or shipping promises."
-    )
-    example = ListingGenerator(use_llm=False).generate_full_listing(
+def worked_example() -> dict:
+    """The public worksheet uses the same deterministic result as the product."""
+    return ListingGenerator(use_llm=False).generate_full_listing(
         product_name="Pressed flower teardrop pendant necklace",
         primary_keyword="pressed flower necklace",
         category="jewelry",
@@ -207,11 +210,17 @@ def home_page() -> str:
         platform="etsy",
         force_template=True,
     )
-    example_tags = ", ".join(example["tags"])
-    example_description = (
-        "Pressed flower teardrop pendant necklace. Stainless steel chain, blue and white, "
-        "18-inch chain, pendant: 1.25 inches."
+
+
+def home_page() -> str:
+    description = (
+        "Create a free Etsy draft from product facts you supply. Generate a title, description, "
+        "and tags without invented materials, claims, ratings, or shipping promises."
     )
+    example = worked_example()
+    example_tags = ", ".join(example["tags"])
+    example_description = html.escape(example["description"]).replace("\n", "<br>")
+    example_review = "".join(f"<li>{html.escape(note)}</li>" for note in example["review_notes"])
     body = f"""
 <section class="hero bench-hero">
   <div class="hero-copy"><p class="eyebrow">For Etsy sellers who already know the facts</p>
@@ -224,7 +233,8 @@ def home_page() -> str:
     <div class="worksheet-top"><span>SELLERDRAFTS / ETSY</span><span>WORKSHEET 001</span></div>
     <div class="worksheet-title"><p>Listing bench ticket</p><span class="worksheet-stamp">DRAFT</span></div>
     <div class="worksheet-block facts-block"><p class="field-group-label">Facts</p><dl class="source-map"><div><dt>Product</dt><dd>Pressed flower teardrop pendant necklace</dd></div><div><dt>Material</dt><dd>stainless steel chain</dd></div><div><dt>Color</dt><dd>blue and white</dd></div><div><dt>Size</dt><dd>18-inch chain</dd></div><div><dt>Detail</dt><dd>Pendant: 1.25 inches</dd></div><div><dt>Handmade</dt><dd>not supplied</dd></div></dl></div>
-    <div class="worksheet-block output-block"><p class="field-group-label">Draft fields</p><div class="worksheet-field"><span>Title</span><p>{html.escape(example["best_title"])}</p></div><div class="worksheet-field"><span>Tags</span><p>{html.escape(example_tags)}</p></div><div class="worksheet-field"><span>Description</span><p>{html.escape(example_description)}</p></div></div>
+    <div class="worksheet-block output-block"><p class="field-group-label">Draft fields</p><div class="worksheet-field"><span>Title</span><p>{html.escape(example["best_title"])}</p></div><div class="worksheet-field"><span>Description</span><p>{example_description}</p></div><div class="worksheet-field"><span>Tags</span><p>{html.escape(example_tags)}</p></div></div>
+    <details class="example-review"><summary>Checklist: {html.escape(example["scores"]["overall"]["status"])} · view review notes</summary><ul>{example_review}</ul><p>A checklist result does not certify the facts or marketplace compliance.</p></details>
     <p class="omission-note"><em>Handmade</em> was not typed, so it is not in the draft.</p>
   </aside>
 </section>

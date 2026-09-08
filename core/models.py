@@ -16,6 +16,7 @@ from sqlalchemy import (
     String,
     Text,
     Uuid,
+    false,
     func,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -42,6 +43,8 @@ class User(Base):
     google_subject: Mapped[str | None] = mapped_column(String(255), unique=True, index=True)
     google_email: Mapped[str | None] = mapped_column(String(320))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Existing accounts remain unclassified until a trusted operator identifies fixtures.
+    is_test_fixture: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     terms_accepted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     terms_version: Mapped[str] = mapped_column(String(32), default=TERMS_VERSION)
@@ -86,7 +89,10 @@ class UserSession(Base):
 
 class Listing(Base):
     __tablename__ = "listings"
-    __table_args__ = (Index("ix_listings_user_created", "user_id", "created_at"),)
+    __table_args__ = (
+        Index("ix_listings_user_created", "user_id", "created_at"),
+        Index("ix_listings_user_created_id", "user_id", "created_at", "id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(
@@ -129,6 +135,23 @@ class UsageEvent(Base):
         DateTime(timezone=True), default=utcnow, nullable=False
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ProductMilestone(Base):
+    """One content-free, server-verified milestone per account and event kind."""
+
+    __tablename__ = "product_milestones"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    kind: Mapped[str] = mapped_column(String(32), primary_key=True)
+    is_backfilled: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false(), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
 
 
 class Subscription(Base):

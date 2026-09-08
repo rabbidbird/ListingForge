@@ -10,7 +10,8 @@ import streamlit as st
 from core.auth import require_streamlit_user
 from core.config import get_settings
 from core.csv_processor import CSVValidationError, read_csv_bytes, validate_csv_rows
-from core.events import record_product_event
+from core.draft_review import draft_export_ready
+from core.events import record_export_action, record_product_event
 from core.generation_service import GenerationInputError, generate_for_user
 from core.llm import is_llm_available
 from core.ui import (
@@ -129,6 +130,7 @@ if uploaded is not None:
                 else:
                     record_product_event(user.id, "bulk_job_started")
                     results: list[dict] = []
+                    listing_ids: list[str] = []
                     errors: list[dict[str, object]] = []
                     progress = st.progress(0)
                     status = st.empty()
@@ -143,6 +145,7 @@ if uploaded is not None:
                                     user.id, payload, mode="bulk"
                                 )
                                 results.append(result)
+                                listing_ids.append(str(_listing_id))
                             except (GenerationInputError, UsageLimitError) as exc:
                                 errors.append({"CSV row": row.row_number, "Error": str(exc)})
                             except Exception:
@@ -159,6 +162,7 @@ if uploaded is not None:
                         "user_id": str(user.id),
                         "batch_id": batch_id,
                         "results": results,
+                        "listing_ids": listing_ids,
                         "errors": errors,
                     }
                     record_product_event(user.id, "bulk_job_completed")
@@ -188,7 +192,18 @@ if stored and stored.get("user_id") == str(user.id):
 
     if results:
         st.divider()
-        confirmed = confirm_before_export(f"bulk_{stored['batch_id']}")
+        blocked = [result for result in results if not draft_export_ready(result)]
+        if blocked:
+            st.warning(
+                f"{len(blocked)} draft(s) need corrections before this batch can be downloaded. "
+                "Open private History to edit and export the corrected drafts."
+            )
+            with st.expander("Drafts needing corrections", expanded=True):
+                for result in blocked:
+                    st.write(result["meta"]["product_name"])
+                    for note in result.get("review_notes") or []:
+                        st.write(note)
+        confirmed = confirm_before_export(f"bulk_{stored['batch_id']}") if not blocked else False
         if confirmed:
             export_frame = export_to_dataframe(results)
             st.download_button(
@@ -197,8 +212,8 @@ if stored and stored.get("user_id") == str(user.id):
                 file_name="sellerdrafts_bulk_drafts.csv",
                 mime="text/csv",
                 type="primary",
-                on_click=record_product_event,
-                args=(user.id, "export_completed"),
+                on_click=record_export_action,
+                args=(user.id, stored.get("listing_ids", [])),
             )
         else:
             st.caption("Complete all confirmation checks to enable the bulk download.")

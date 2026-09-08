@@ -8,7 +8,7 @@ import streamlit as st
 
 from core.auth import require_streamlit_user
 from core.draft_review import draft_export_ready
-from core.events import record_product_event
+from core.events import record_export_action
 from core.generation_service import GenerationInputError, generate_for_user
 from core.llm import is_llm_available
 from core.ui import (
@@ -99,8 +99,8 @@ if has_latest_draft:
     edit_ready = draft_export_ready(result)
     if not edit_ready:
         st.error(
-            "Downloads are locked for this draft. Resolve the flagged wording or explicitly "
-            "verify it, then save and re-check; copying remains available above."
+            "Downloads are locked for this draft. Correct platform validation errors and "
+            "resolve or verify new wording, then save and re-check."
         )
     confirmed = confirm_before_export(f"single_{listing_id}") if edit_ready else False
     filename = safe_filename(result["meta"]["product_name"])
@@ -114,8 +114,8 @@ if has_latest_draft:
             file_name=f"sellerdrafts_{filename}.csv",
             mime="text/csv",
             width="stretch",
-            on_click=record_product_event,
-            args=(user.id, "export_completed"),
+            on_click=record_export_action,
+            args=(user.id, [str(listing_id)]),
         )
         second.download_button(
             "Download JSON draft",
@@ -123,8 +123,8 @@ if has_latest_draft:
             file_name=f"sellerdrafts_{filename}.json",
             mime="application/json",
             width="stretch",
-            on_click=record_product_event,
-            args=(user.id, "export_completed"),
+            on_click=record_export_action,
+            args=(user.id, [str(listing_id)]),
         )
     else:
         st.caption("Complete all confirmation checks to enable downloads.")

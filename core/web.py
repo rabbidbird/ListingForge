@@ -47,10 +47,11 @@ from .auth import (
 from .billing import BillingError, WebhookVerificationError, handle_webhook
 from .config import PROJECT_ROOT, get_settings
 from .database import session_scope
-from .events import PRODUCT_EVENTS, record_product_event
+from .events import PRODUCT_EVENTS, record_copy_acknowledgment
 from .legal import TERMS_VERSION
 from .marketing import (
     PUBLIC_PATHS,
+    PUBLIC_STYLESHEET,
     guide_page,
     guides_page,
     home_page,
@@ -125,7 +126,7 @@ async def security_and_soft_limit(request: Request, call_next):
     if request.url.path.startswith(("/auth/", "/app/")):
         response.headers["X-Robots-Tag"] = "noindex, nofollow"
     response.headers["Content-Security-Policy"] = (
-        "default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+        "default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; "
         "form-action 'self'; "
         "base-uri 'none'; frame-ancestors 'self'"
     )
@@ -257,7 +258,7 @@ async def product_event(request: Request):
     if user is None:
         return JSONResponse({"detail": "Authentication required."}, status_code=401)
     body = await request.body()
-    if len(body) > 256:
+    if len(body) > 1024:
         return JSONResponse({"detail": "Invalid event request."}, status_code=400)
     payload: object = None
     try:
@@ -268,10 +269,12 @@ async def product_event(request: Request):
     if (
         event_name not in _BROWSER_PRODUCT_EVENTS
         or not isinstance(payload, dict)
-        or set(payload) != {"event"}
+        or set(payload) != {"event", "ticket"}
+        or not isinstance(payload.get("ticket"), str)
     ):
         return JSONResponse({"detail": "Invalid event request."}, status_code=400)
-    record_product_event(user.id, event_name)
+    if not record_copy_acknowledgment(user.id, event_name, payload["ticket"]):
+        return JSONResponse({"detail": "Invalid draft action."}, status_code=403)
     return Response(status_code=204)
 
 
@@ -316,7 +319,7 @@ def _page(title: str, body: str) -> str:
 <title>{html.escape(title)} | SellerDrafts</title>
 <meta name="robots" content="noindex,nofollow">
 <link rel="icon" href="/assets/mark.svg" type="image/svg+xml">
-<link rel="stylesheet" href="/assets/public.css">
+<link rel="stylesheet" href="{PUBLIC_STYLESHEET}">
 </head><body class="auth-page"><div class="auth-shell">
 <header class="auth-header"><a class="wordmark" href="/"><img src="/assets/wordmark.svg" alt="SellerDrafts" width="188" height="36"></a><a href="/">Back to site</a></header>
 <div class="auth-layout"><aside class="auth-note"><p class="ticket-label">ACCOUNT WORK TICKET</p><p class="auth-note-title">If you didn’t type it, it stays out.</p><dl class="auth-ticket"><div><dt>INPUT</dt><dd>Verified product facts</dd></div><div><dt>OUTPUT</dt><dd>Editable Etsy draft</dd></div><div><dt>FINAL CHECK</dt><dd>Yours</dd></div></dl></aside><main class="auth-card">{body}</main></div>
@@ -374,7 +377,11 @@ def _current_request_user(request: Request) -> User | None:
 def _google_button(plan: str = "", *, signup_origin: bool = False) -> str:
     if not settings.google_configured:
         return ""
-    query = urlencode({"origin": "signup", "plan": plan}) if signup_origin else _intent_query(plan)
+    query = (
+        "?" + urlencode({"origin": "signup", "plan": _plan_intent(plan)})
+        if signup_origin
+        else _intent_query(plan)
+    )
     target = html.escape(f"/auth/google{query}", quote=True)
     label = "Create free account with Google" if signup_origin else "Continue with Google"
     return f"""

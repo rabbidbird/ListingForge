@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .claims import NEGATION_WORDS, term_present_affirmatively
+from .claims import term_present_affirmatively
 from .llm import generate_with_llm, is_llm_available, source_phrase_catalog
 from .seo_scorer import SEOScorer
 
@@ -234,20 +234,19 @@ class ListingGenerator:
         return " ".join(rendered)
 
     @staticmethod
-    def _unique_source_tokens(phrases: list[str]) -> list[str]:
-        """Keep supplied tokens in order while removing case-insensitive repeats."""
+    def _unique_complete_phrases(phrases: list[str]) -> list[str]:
+        """Remove only exact duplicate phrases; never rewrite their internal facts."""
 
-        tokens: list[str] = []
+        unique: list[str] = []
         seen: set[str] = set()
         for phrase in phrases:
-            for token in ListingGenerator._clean_text(phrase).split():
-                key = re.sub(r"[^\w]+", "", token, flags=re.UNICODE).casefold()
-                key = key or token.casefold()
-                if key in seen:
-                    continue
-                seen.add(key)
-                tokens.append(token)
-        return tokens
+            value = ListingGenerator._clean_text(phrase)
+            key = value.casefold()
+            if not value or key in seen:
+                continue
+            seen.add(key)
+            unique.append(value)
+        return unique
 
     @classmethod
     def _etsy_noun_led_title(
@@ -268,67 +267,55 @@ class ListingGenerator:
             for token in cls._clean_text(item_noun).split()
         }
         primary = cls._clean_text(primary_phrase)
-        primary_words = primary.split()
-        primary_fits = bool(primary) and len(primary_words) < 15 and len(primary) <= maximum
-        if primary_fits:
-            # Keep the seller's selected phrase contiguous. Additional supplied words
-            # may follow it, but are never inserted into or substituted inside it.
-            base_phrases = [primary, item_noun, product_name]
-        else:
-            # Sellers commonly repeat the noun inside the product name. Preserve their
-            # phrase order instead of producing "Necklace Teardrop Pendant".
-            noun_already_in_product = bool(noun_keys) and noun_keys <= product_keys
+        # The product phrase is mandatory when it fits. A keyword may be a positive
+        # substring of a qualified product phrase (for example, "silver necklace"
+        # inside "not silver necklace"); never replace the source phrase with it.
+        # Sellers commonly repeat the noun inside the product name, so do not prepend
+        # a separate noun phrase in that case.
+        noun_already_in_product = bool(noun_keys) and noun_keys <= product_keys
+        product_value = cls._clean_text(product_name)
+        noun_value = cls._clean_text(item_noun)
+        base_phrases = [product_value]
+        if item_noun and not noun_already_in_product:
+            noun_led = cls._smart_title(cls._clean_text(f"{noun_value} {product_value}"))
+            # Preserve the product phrase even when the optional noun cannot sit
+            # before it within the hard character limit.
             base_phrases = (
-                [product_name]
-                if noun_already_in_product or not item_noun
-                else [item_noun, product_name]
+                [noun_value, product_value]
+                if len(noun_led) <= maximum
+                else [product_value, noun_value]
             )
-        tokens = cls._unique_source_tokens(base_phrases)
-        if len(tokens) > 14:
-            tokens = tokens[:14]
-        used = {
-            re.sub(r"[^\w]+", "", token, flags=re.UNICODE).casefold() or token.casefold()
-            for token in tokens
-        }
-        descriptors_added = 0
-        descriptor_word_limit = (
-            ETSY_TITLE_WORD_TARGET if len(tokens) <= ETSY_TITLE_WORD_TARGET else 14
-        )
-        for descriptor in descriptors:
-            descriptor_tokens = []
-            for token in cls._unique_source_tokens([descriptor]):
-                key = re.sub(r"[^\w]+", "", token, flags=re.UNICODE).casefold()
-                key = key or token.casefold()
-                if key not in used:
-                    descriptor_tokens.append((token, key))
-            if (
-                not descriptor_tokens
-                or len(tokens) + len(descriptor_tokens) > descriptor_word_limit
-            ):
+        if primary and primary.casefold() not in cls._clean_text(product_name).casefold():
+            base_phrases.append(primary)
+        phrases = cls._unique_complete_phrases(base_phrases)
+        # Etsy's word target is advice, not permission to cut a supplied factual span.
+        # Keep whole source phrases that fit; later optional descriptors are omitted
+        # intact when the character limit cannot accommodate them.
+        selected: list[str] = []
+        for phrase in phrases:
+            candidate = cls._clean_text(" ".join([*selected, phrase]))
+            if len(cls._smart_title(candidate)) > maximum:
                 continue
-            candidate_tokens = tokens + [token for token, _key in descriptor_tokens]
-            candidate = cls._smart_title(" ".join(candidate_tokens))
+            selected.append(phrase)
+        descriptors_added = 0
+        for descriptor in descriptors:
+            descriptor = cls._clean_text(descriptor)
+            if not descriptor or descriptor.casefold() in {value.casefold() for value in selected}:
+                continue
+            candidate = cls._smart_title(" ".join([*selected, descriptor]))
             if len(candidate) > maximum:
                 continue
-            tokens = candidate_tokens
-            used.update(key for _token, key in descriptor_tokens)
+            selected.append(descriptor)
             descriptors_added += 1
             if descriptors_added >= 3:
                 break
-        title = cls._smart_title(" ".join(tokens))
+        title = cls._smart_title(" ".join(selected))
         return title if title and len(title) <= maximum else "DRAFT Product Listing"
 
     @classmethod
     def _phrase_used_in_title(cls, phrase: str, title: str) -> bool:
-        phrase_keys = {
-            re.sub(r"[^\w]+", "", token, flags=re.UNICODE).casefold() or token.casefold()
-            for token in cls._clean_text(phrase).split()
-        }
-        title_keys = {
-            re.sub(r"[^\w]+", "", token, flags=re.UNICODE).casefold() or token.casefold()
-            for token in cls._clean_text(title).split()
-        }
-        return bool(phrase_keys) and phrase_keys <= title_keys
+        phrase_value = cls._clean_text(phrase).casefold()
+        return bool(phrase_value) and phrase_value in cls._clean_text(title).casefold()
 
     @staticmethod
     def _source_blob(**fields: Any) -> str:
@@ -452,7 +439,10 @@ class ListingGenerator:
         tags: list[str] = []
         for phrase_id in clean_tag_ids:
             tag = self._fit_tag(catalog[phrase_id], platform)
-            if tag and tag not in tags:
+            if not tag:
+                failures.append("LLM selected a tag phrase that does not fit the platform limit")
+                continue
+            if tag not in tags:
                 tags.append(tag)
 
         ordered_features: list[str] = []
@@ -584,7 +574,7 @@ class ListingGenerator:
 
     @classmethod
     def _source_tag_phrases(cls, phrase: str, platform: str) -> list[str]:
-        """Return only complete or contiguous source phrases that fit the platform."""
+        """Return only complete supplied phrases that fit the platform."""
 
         value = cls._clean_text(phrase)
         if not value:
@@ -592,84 +582,41 @@ class ListingGenerator:
         fitted = cls._fit_tag(value, platform)
         if fitted:
             return [fitted]
-        if platform != "etsy":
-            return []
-        words = value.split()
-        polarity_words = {
-            word.casefold()
-            for word in re.findall(r"[a-z]+(?:'[a-z]+)?", value, flags=re.IGNORECASE)
-        }
-        if polarity_words & NEGATION_WORDS or re.search(
-            r"(?:[:=\-–—]\s*|\(\s*)(?:false|no|none|not|0)\b", value, flags=re.IGNORECASE
-        ):
-            return []
+        return []
 
-        # Break an overlong supplied phrase into a small number of readable,
-        # contiguous source phrases. Connector-only edges such as "gift for" are
-        # deliberately excluded; no synonym or new product word is introduced.
-        connectors = {"and", "for", "or", "with"}
-        results: list[str] = []
+    def _generate_tags_with_omissions(
+        self, *args: Any, **kwargs: Any
+    ) -> tuple[list[str], list[str]]:
+        """Generate intact tags and report source phrases that cannot fit unchanged."""
 
-        def add_candidate(candidate_words: list[str]) -> None:
-            if len(candidate_words) < 2:
-                return
-            if (
-                candidate_words[0].casefold() in connectors
-                or candidate_words[-1].casefold() in connectors
-            ):
-                return
-            candidate = cls._fit_tag(" ".join(candidate_words), platform)
-            if candidate and candidate not in results:
-                results.append(candidate)
-
-        selected_ranges: list[tuple[int, int]] = []
-        index = 0
-        while index < len(words):
-            if not re.search(r"\d", words[index]):
-                index += 1
-                continue
-            end = index + 1
-            while end < len(words) and re.search(r"\d", words[end]):
-                end += 1
-            if end < len(words) and words[end].casefold() not in connectors:
-                end += 1
-            before = len(results)
-            add_candidate(words[index:end])
-            if len(results) > before:
-                selected_ranges.append((index, end))
-            index = end
-
-        connector_indexes = [
-            index for index, word in enumerate(words) if word.casefold() in connectors
+        tags = self.generate_tags(*args, **kwargs)
+        platform = str(kwargs.get("platform", "etsy"))
+        candidates = [
+            kwargs.get("primary_keyword") or kwargs.get("product_name", ""),
+            kwargs.get("product_name", ""),
+            *(kwargs.get("extra_keywords") or []),
+            kwargs.get("occasion_or_recipient", ""),
+            kwargs.get("audience", ""),
+            kwargs.get("item_noun", ""),
+            kwargs.get("color", ""),
+            kwargs.get("material", ""),
+            kwargs.get("size", ""),
+            *(kwargs.get("features") or []),
         ]
-        if connector_indexes:
-            start = 0
-            for index in connector_indexes:
-                add_candidate(words[start:index])
-                if words[index].casefold() == "for" and index > 0:
-                    add_candidate(words[index - 1 :])
-                start = index + 1
-            add_candidate(words[start:])
-            if results:
-                return results[:3]
-
-        # With no useful clause boundary, select at most two long, non-overlapping
-        # spans. Every output remains an exact contiguous slice of the supplied phrase.
-        for width in range(len(words) - 1, 1, -1):
-            for start in range(0, len(words) - width + 1):
-                end = start + width
-                if any(
-                    start < existing_end and end > existing_start
-                    for existing_start, existing_end in selected_ranges
-                ):
-                    continue
-                before = len(results)
-                add_candidate(words[start:end])
-                if len(results) > before:
-                    selected_ranges.append((start, end))
-                if len(results) >= 2:
-                    return results
-        return results
+        omitted: list[str] = []
+        for candidate in candidates:
+            value = self._clean_text(str(candidate))
+            fitted = self._fit_tag(value, platform) if value else ""
+            if not fitted:
+                if value and value not in omitted:
+                    omitted.append(value)
+                continue
+            # A candidate can fit as a tag but be excluded once all 13 Etsy slots
+            # are occupied. Report that whole phrase too; never fragment it to make
+            # room or imply the complete tag set was returned.
+            if fitted not in tags and value not in omitted:
+                omitted.append(value)
+        return tags, omitted
 
     def generate_tags(
         self,
@@ -876,7 +823,7 @@ class ListingGenerator:
                 size=size,
                 occasion_or_recipient=occasion_or_recipient,
             )
-            tags = self.generate_tags(
+            tags, omitted_tag_phrases = self._generate_tags_with_omissions(
                 product_name=product_name,
                 primary_keyword=primary_keyword,
                 category=category,
@@ -913,6 +860,27 @@ class ListingGenerator:
         tags_score = self.scorer.score_tags(tags, tag_phrase_for_score, platform)
         overall = self.scorer.overall_score(title_score, description_score, tags_score)
         review_notes = list(overall.get("feedback") or [])
+        if llm_result:
+            omitted_tag_phrases = []
+        optional_title_phrases = [primary_keyword, item_noun, color, material, size]
+        omitted_title_phrases = [
+            self._clean_text(value)
+            for value in optional_title_phrases
+            if self._clean_text(value) and not self._phrase_used_in_title(value, best_title)
+        ]
+        for phrase in dict.fromkeys(omitted_title_phrases):
+            review_notes.append(
+                f"Optional title phrase left out intact because it does not fit the title limit: {phrase}"
+            )
+        for phrase in omitted_tag_phrases:
+            review_notes.append(
+                f"Tag phrase left out intact because it does not fit the platform tag limit: {phrase}"
+            )
+        if best_title == "DRAFT Product Listing" and self._clean_text(product_name):
+            review_notes.append(
+                "The supplied product phrase does not fit the platform title limit; "
+                "use a shorter verified title phrase. The full supplied phrase remains in the draft description."
+            )
         if not review_notes:
             review_notes.append(
                 "No structural warning was found; verify every factual claim and current marketplace rule."

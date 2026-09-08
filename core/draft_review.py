@@ -6,7 +6,7 @@ import copy
 import re
 from typing import Any
 
-from .claims import audit_unverified_claims
+from .claims import NEGATION_WORDS, audit_unverified_claims
 from .generator import LLM_SAFE_GLUE_WORDS
 from .seo_scorer import SEOScorer
 
@@ -36,6 +36,11 @@ _NEUTRAL_WORDS = LLM_SAFE_GLUE_WORDS | {
     "type",
 }
 _TOKEN = re.compile(r"[a-z0-9]+(?:['’/-][a-z0-9]+)*", flags=re.IGNORECASE)
+_FACT_TOKEN = re.compile(r"\d+(?:\.\d+)?(?:/\d+)?|[a-z]+(?:['’/-][a-z0-9]+)*", re.IGNORECASE)
+_NEGATION_PATTERN = re.compile(
+    rf"(?<!\w)(?:{'|'.join(re.escape(word) for word in NEGATION_WORDS)})(?!\w)",
+    flags=re.IGNORECASE,
+)
 
 
 def original_source_facts(result: dict[str, Any]) -> dict[str, Any]:
@@ -62,10 +67,110 @@ def _source_text(facts: dict[str, Any]) -> str:
     return "\n".join(values)
 
 
+def _factual_source_spans(facts: dict[str, Any]) -> list[str]:
+    """Return supplied spans whose internal number or polarity must stay intact."""
+
+    values: list[str] = []
+    for key, raw_value in facts.items():
+        if key in {"category", "platform", "force_template"}:
+            continue
+        candidates = raw_value if isinstance(raw_value, list) else [raw_value]
+        for candidate in candidates:
+            value = " ".join(str(candidate).split())
+            if not value or (not re.search(r"\d", value) and not _NEGATION_PATTERN.search(value)):
+                continue
+            if value.casefold() not in {existing.casefold() for existing in values}:
+                values.append(value)
+    return values
+
+
+def _source_span_warnings(
+    result: dict[str, Any], facts: dict[str, Any], *, title: str, description: str, tags: list[str]
+) -> list[dict[str, str]]:
+    """Detect changed factual spans per field, even when the vocabulary is unchanged."""
+
+    stored_fields = (result.get("meta") or {}).get("source_rendered_fields")
+    stored_fields = stored_fields if isinstance(stored_fields, dict) else {}
+    original_fields = {
+        "title": str(stored_fields.get("title") or result.get("best_title") or ""),
+        "description": str(stored_fields.get("description") or result.get("description") or ""),
+        "tags": "\n".join(
+            str(tag) for tag in list(stored_fields.get("tags") or result.get("tags") or [])
+        ),
+    }
+    edited_fields = {"title": title, "description": description, "tags": "\n".join(tags)}
+    warnings: list[dict[str, str]] = []
+    for span in _factual_source_spans(facts):
+        source_span = span.casefold()
+        for field, original in original_fields.items():
+            if (
+                source_span not in original.casefold()
+                or source_span in edited_fields[field].casefold()
+            ):
+                continue
+            warnings.append(
+                {
+                    "kind": "fact_span",
+                    "phrase": span,
+                    "category": "Source fact changed",
+                    "message": (
+                        f"The supplied factual span “{span}” was changed in the {field}. "
+                        "Restore the exact verified wording or explicitly verify the edit before export."
+                    ),
+                }
+            )
+    return warnings
+
+
+def _legacy_product_span_warnings(
+    result: dict[str, Any], facts: dict[str, Any], *, title: str
+) -> list[dict[str, str]]:
+    """Flag a legacy title that looks like a partial mandatory product assertion.
+
+    Old rows have no immutable rendered-field baseline. This deliberately does
+    not flag a title merely because it omits a product phrase: it needs a strong
+    token overlap that indicates the phrase was started and then damaged.
+    """
+
+    if isinstance((result.get("meta") or {}).get("source_rendered_fields"), dict):
+        return []
+    product = " ".join(str(facts.get("product_name") or "").split())
+    if not product or (not re.search(r"\d", product) and not _NEGATION_PATTERN.search(product)):
+        return []
+    source_tokens = [token.casefold() for token in _FACT_TOKEN.findall(product)]
+    title_tokens = [token.casefold() for token in _FACT_TOKEN.findall(title)]
+    if not source_tokens or product.casefold() in " ".join(title_tokens):
+        return []
+    source_counts = {token: source_tokens.count(token) for token in set(source_tokens)}
+    title_counts = {token: title_tokens.count(token) for token in set(title_tokens)}
+    overlap = sum(min(count, title_counts.get(token, 0)) for token, count in source_counts.items())
+    non_negated_tokens = [token for token in source_tokens if token not in NEGATION_WORDS]
+    likely_partial = overlap >= max(2, len(source_tokens) - 1) or (
+        bool(_NEGATION_PATTERN.search(product))
+        and bool(non_negated_tokens)
+        and all(token in title_counts for token in non_negated_tokens)
+    )
+    if not likely_partial:
+        return []
+    return [
+        {
+            "kind": "fact_span",
+            "phrase": product,
+            "category": "Legacy source fact changed",
+            "message": (
+                f"The stored title appears to contain a partial version of the supplied product "
+                f"fact “{product}”. Restore the exact verified wording or explicitly verify the "
+                "legacy edit before export."
+            ),
+        }
+    ]
+
+
 def audit_edited_fields(
     result: dict[str, Any], *, title: str, description: str, tags: list[str]
 ) -> list[dict[str, str]]:
-    source = _source_text(original_source_facts(result))
+    facts = original_source_facts(result)
+    source = _source_text(facts)
     edited = "\n".join([title, description, *tags])
     claim_matches = audit_unverified_claims(edited, source)
     claim_tokens = {
@@ -106,6 +211,10 @@ def audit_edited_fields(
                 ),
             }
         )
+    warnings.extend(
+        _source_span_warnings(result, facts, title=title, description=description, tags=tags)
+    )
+    warnings.extend(_legacy_product_span_warnings(result, facts, title=title))
     return warnings
 
 
@@ -131,7 +240,27 @@ def recheck_edited_draft(
     tags_score = scorer.score_tags(tags, tag_phrase, platform)
     overall = scorer.overall_score(title_score, description_score, tags_score)
     warnings = audit_edited_fields(updated, title=title, description=description, tags=tags)
-    if any(warning["kind"] == "claim" for warning in warnings):
+    validation_warnings = [
+        {
+            "kind": "platform_validation",
+            "phrase": "tags",
+            "category": "Platform validation",
+            "message": message,
+        }
+        for message in scorer.validate_tags(tags, platform)
+    ]
+    title_limit = scorer.score_title(title, "", platform).get("limit", 70)
+    if platform != "shopify" and len(title) > int(title_limit):
+        validation_warnings.append(
+            {
+                "kind": "platform_validation",
+                "phrase": "title",
+                "category": "Platform validation",
+                "message": f"Title exceeds the current {platform.title()} checklist limit ({title_limit}).",
+            }
+        )
+    warnings.extend(validation_warnings)
+    if validation_warnings or any(warning["kind"] == "claim" for warning in warnings):
         overall["status"] = "Verify"
     elif warnings and overall["status"] == "Pass":
         overall["status"] = "Review"
@@ -154,14 +283,29 @@ def recheck_edited_draft(
         warning["phrase"] for warning in warnings if warning["kind"] == "claim"
     ]
     updated["meta"]["source_facts"] = facts
+    updated["meta"].setdefault(
+        "source_rendered_fields",
+        {
+            "title": str(result.get("best_title") or ""),
+            "description": str(result.get("description") or ""),
+            "tags": list(result.get("tags") or []),
+        },
+    )
     updated["edit_review"] = {
         "warnings": warnings,
         "explicitly_verified": bool(explicitly_verified and warnings),
-        "export_ready": bool(not warnings or explicitly_verified),
+        "export_ready": bool(not validation_warnings and (not warnings or explicitly_verified)),
     }
     return updated
 
 
 def draft_export_ready(result: dict[str, Any]) -> bool:
+    platform = str(result.get("platform") or "etsy")
+    title = str(result.get("best_title") or "")
+    title_limit = SEOScorer.score_title(title, "", platform).get("limit", 70)
+    if (platform != "shopify" and len(title) > int(title_limit)) or SEOScorer.validate_tags(
+        list(result.get("tags") or []), platform
+    ):
+        return False
     review = result.get("edit_review")
     return not isinstance(review, dict) or bool(review.get("export_ready"))

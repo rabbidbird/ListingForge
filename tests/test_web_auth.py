@@ -148,7 +148,22 @@ def test_authenticated_copy_event_accepts_only_an_allowlisted_text_free_payload(
             follow_redirects=False,
         )
         assert response.status_code == 303
-        assert client.post("/events/product", json={"event": "title_copied"}).status_code == 204
+        assert client.post("/events/product", json={"event": "title_copied"}).status_code == 400
+        from core.events import copy_event_ticket
+        from core.generation_service import generate_for_user
+
+        with session_scope() as session:
+            user = get_user_by_session_token(
+                session, client.cookies.get(web.settings.session_cookie_name)
+            )
+        _, listing_id = generate_for_user(user.id, {"product_name": "Pendant"})
+        ticket = copy_event_ticket(user.id, str(listing_id), "title_copied")
+        assert (
+            client.post(
+                "/events/product", json={"event": "title_copied", "ticket": ticket}
+            ).status_code
+            == 204
+        )
         assert (
             client.post(
                 "/events/product",

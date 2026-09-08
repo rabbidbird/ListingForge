@@ -2,16 +2,22 @@
 
 from __future__ import annotations
 
+import copy
+import json
 import math
 import re
 import uuid
+from base64 import urlsafe_b64decode, urlsafe_b64encode
+from binascii import Error as BinasciiError
+from datetime import datetime
 from typing import Any
 
 import pandas as pd
-from sqlalchemy import delete, select, update
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from .database import session_scope
+from .draft_review import recheck_edited_draft
 from .models import Listing
 
 
@@ -70,48 +76,238 @@ def save_listing(
         return listing.id
 
 
-def get_history(user_id: uuid.UUID, limit: int = 50) -> list[dict[str, Any]]:
-    limit = max(1, min(int(limit), 500))
+HISTORY_PAGE_SIZE = 50
+HISTORY_MAX_PAGE_SIZE = 100
+_SOURCE_OMISSION_PREFIXES = (
+    "Optional title phrase left out intact because ",
+    "Tag phrase left out intact because ",
+    "The supplied product phrase does not fit the platform title limit; ",
+)
+
+
+def _source_omission_notes(result: dict[str, Any]) -> list[str]:
+    """Keep current generator omission notices while recalculating checklist state."""
+    return [
+        note
+        for note in result.get("review_notes") or []
+        if isinstance(note, str) and note.startswith(_SOURCE_OMISSION_PREFIXES)
+    ]
+
+
+def revalidate_saved_draft(result: dict[str, Any]) -> dict[str, Any]:
+    """Rebuild saved checklist state in memory without altering the stored draft.
+
+    Older rows can contain scores produced before a platform validator changed.
+    Rechecking from their saved source facts makes read, export, and callback
+    decisions use the same review path as an edited draft while preserving any
+    saved warning and explicit verification decision.
+    """
+    stored = copy.deepcopy(result)
+    omission_notes = _source_omission_notes(stored)
+    title = str(stored.get("best_title") or "")
+    description = str(stored.get("description") or "")
+    tags = [str(tag) for tag in list(stored.get("tags") or [])]
+    previous_review = stored.get("edit_review")
+    previous_review = previous_review if isinstance(previous_review, dict) else {}
+    previous_warnings = [
+        warning
+        for warning in list(previous_review.get("warnings") or [])
+        if isinstance(warning, dict)
+    ]
+    explicitly_verified = bool(previous_review.get("explicitly_verified"))
+
+    rechecked = recheck_edited_draft(
+        stored,
+        title=title,
+        description=description,
+        tags=tags,
+        explicitly_verified=explicitly_verified,
+    )
+    review = rechecked.get("edit_review")
+    assert isinstance(review, dict)
+    current_warnings = [
+        warning for warning in list(review.get("warnings") or []) if isinstance(warning, dict)
+    ]
+    seen = {json.dumps(warning, sort_keys=True, default=str) for warning in current_warnings}
+    preserved_warnings = [
+        warning
+        for warning in previous_warnings
+        if json.dumps(warning, sort_keys=True, default=str) not in seen
+    ]
+    warnings = [*current_warnings, *preserved_warnings]
+    review["warnings"] = warnings
+    review["explicitly_verified"] = explicitly_verified
+    # A saved unverified warning remains a block until the owner verifies it.
+    review["export_ready"] = bool(
+        review.get("export_ready")
+        and (not previous_warnings or explicitly_verified)
+        and (previous_review.get("export_ready", True) or explicitly_verified)
+    )
+    if warnings and not explicitly_verified:
+        rechecked["scores"]["overall"]["status"] = "Verify"
+    elif omission_notes and rechecked["scores"]["overall"].get("status") == "Pass":
+        # A whole supplied phrase was deliberately omitted, so it still needs review.
+        rechecked["scores"]["overall"]["status"] = "Review"
+    rechecked["review_notes"] = [
+        *list(rechecked.get("review_notes") or []),
+        *(warning.get("message", "") for warning in preserved_warnings),
+        *omission_notes,
+    ]
+    rechecked["review_notes"] = list(dict.fromkeys(rechecked["review_notes"]))
+    return rechecked
+
+
+def _history_row(row: Listing) -> dict[str, Any]:
+    result = revalidate_saved_draft(row.full_json)
+    return {
+        "id": str(row.id),
+        "created_at": row.created_at.isoformat(),
+        "product_name": row.product_name,
+        "primary_keyword": row.primary_keyword,
+        "platform": row.platform,
+        "category": row.category,
+        "best_title": row.best_title,
+        "overall_score": row.overall_score,
+        "grade": row.grade,
+        "status": (
+            result.get("scores", {}).get("overall", {}).get("status")
+            if isinstance(result, dict)
+            else None
+        ),
+    }
+
+
+def _normalized_history_scope(search: str | None, platform: str | None) -> dict[str, str]:
+    return {
+        "search": clean_optional_text(search).casefold(),
+        "platform": clean_optional_text(platform).casefold(),
+    }
+
+
+def _encode_history_cursor(
+    *, created_at: datetime, listing_id: uuid.UUID, scope: dict[str, str]
+) -> str:
+    payload = {
+        "v": 1,
+        "created_at": created_at.isoformat(),
+        "id": str(listing_id),
+        "scope": scope,
+    }
+    return urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode()
+
+
+def _decode_history_cursor(
+    cursor: str | None, scope: dict[str, str]
+) -> tuple[datetime, uuid.UUID] | None:
+    if not cursor:
+        return None
+    try:
+        padded = cursor + "=" * (-len(cursor) % 4)
+        payload = json.loads(urlsafe_b64decode(padded.encode()).decode())
+        created_at = datetime.fromisoformat(payload["created_at"])
+        listing_id = uuid.UUID(payload["id"])
+    except (BinasciiError, KeyError, TypeError, UnicodeDecodeError, ValueError) as exc:
+        raise ValueError("Invalid history cursor.") from exc
+    if payload.get("v") != 1 or payload.get("scope") != scope:
+        raise ValueError("History cursor does not match the active search or filter.")
+    return created_at, listing_id
+
+
+def get_history_page(
+    user_id: uuid.UUID,
+    *,
+    cursor: str | None = None,
+    page_size: int = HISTORY_PAGE_SIZE,
+    search: str | None = None,
+    platform: str | None = None,
+) -> dict[str, Any]:
+    """Return one user-owned, keyset-paginated history page.
+
+    A cursor is bound to its search and platform scope so a cursor from another
+    filter cannot accidentally skip or expose records.  Fetching one extra row
+    establishes whether a following page exists without counting all history.
+    """
+    page_size = max(1, min(int(page_size), HISTORY_MAX_PAGE_SIZE))
+    scope = _normalized_history_scope(search, platform)
+    position = _decode_history_cursor(cursor, scope)
+    query = select(Listing).where(Listing.user_id == user_id)
+
+    if scope["search"]:
+        pattern = f"%{scope['search']}%"
+        query = query.where(
+            or_(
+                func.lower(Listing.product_name).like(pattern),
+                func.lower(Listing.primary_keyword).like(pattern),
+                func.lower(Listing.platform).like(pattern),
+                func.lower(Listing.category).like(pattern),
+                func.lower(Listing.best_title).like(pattern),
+            )
+        )
+    if scope["platform"]:
+        query = query.where(func.lower(Listing.platform) == scope["platform"])
+    if position is not None:
+        created_at, listing_id = position
+        query = query.where(
+            or_(
+                Listing.created_at < created_at,
+                and_(Listing.created_at == created_at, Listing.id < listing_id),
+            )
+        )
+
     with session_scope() as session:
         rows = session.scalars(
-            select(Listing)
-            .where(Listing.user_id == user_id)
-            .order_by(Listing.created_at.desc())
-            .limit(limit)
+            query.order_by(Listing.created_at.desc(), Listing.id.desc()).limit(page_size + 1)
         ).all()
-        return [
-            {
-                "id": str(row.id),
-                "created_at": row.created_at.isoformat(),
-                "product_name": row.product_name,
-                "primary_keyword": row.primary_keyword,
-                "platform": row.platform,
-                "category": row.category,
-                "best_title": row.best_title,
-                "overall_score": row.overall_score,
-                "grade": row.grade,
-                "status": (
-                    row.full_json.get("scores", {}).get("overall", {}).get("status")
-                    if isinstance(row.full_json, dict)
-                    else None
-                ),
-            }
-            for row in rows
-        ]
+    page_rows = rows[:page_size]
+    next_cursor = (
+        _encode_history_cursor(
+            created_at=page_rows[-1].created_at,
+            listing_id=page_rows[-1].id,
+            scope=scope,
+        )
+        if len(rows) > page_size and page_rows
+        else None
+    )
+    return {"rows": [_history_row(row) for row in page_rows], "next_cursor": next_cursor}
+
+
+def get_history(user_id: uuid.UUID, limit: int = 50) -> list[dict[str, Any]]:
+    """Compatibility helper for the first bounded history page."""
+    limit = max(1, min(int(limit), 500))
+    return get_history_page(user_id, page_size=limit)["rows"]
+
+
+def get_listings_by_ids(
+    user_id: uuid.UUID, listing_ids: list[str | uuid.UUID]
+) -> dict[str, dict[str, Any]]:
+    """Return at most one page of owned drafts keyed by their stable record IDs."""
+    parsed_ids = [parsed for value in listing_ids if (parsed := _parse_listing_id(value))]
+    if not parsed_ids:
+        return {}
+    parsed_ids = parsed_ids[:HISTORY_MAX_PAGE_SIZE]
+    with session_scope() as session:
+        rows = session.scalars(
+            select(Listing).where(Listing.user_id == user_id, Listing.id.in_(parsed_ids))
+        ).all()
+    records = {row.id: revalidate_saved_draft(row.full_json) for row in rows}
+    return {
+        str(listing_id): records[listing_id] for listing_id in parsed_ids if listing_id in records
+    }
 
 
 def get_full_history(user_id: uuid.UUID, limit: int = 500) -> list[dict[str, Any]]:
     """Retrieve authorized full records in one bounded query for export."""
     limit = max(1, min(int(limit), 500))
     with session_scope() as session:
-        return list(
-            session.scalars(
+        return [
+            revalidate_saved_draft(result)
+            for result in session.scalars(
                 select(Listing.full_json)
                 .where(Listing.user_id == user_id)
                 .order_by(Listing.created_at.desc())
                 .limit(limit)
             ).all()
-        )
+        ]
 
 
 def _parse_listing_id(listing_id: str | uuid.UUID) -> uuid.UUID | None:
@@ -131,7 +327,7 @@ def get_listing_by_id(user_id: uuid.UUID, listing_id: str | uuid.UUID) -> dict[s
         row = session.scalar(
             select(Listing).where(Listing.id == parsed, Listing.user_id == user_id)
         )
-        return row.full_json if row is not None else None
+        return revalidate_saved_draft(row.full_json) if row is not None else None
 
 
 def update_listing(
@@ -185,7 +381,8 @@ def delete_listing(user_id: uuid.UUID, listing_id: str | uuid.UUID) -> bool:
 
 def export_to_dataframe(results: list[dict[str, Any]]) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
-    for result in results:
+    for stored_result in results:
+        result = revalidate_saved_draft(stored_result)
         row: dict[str, Any] = {
             "Product Name": clean_optional_text(result["meta"]["product_name"]),
             "Primary Keyword": clean_optional_text(result["meta"]["primary_keyword"]),

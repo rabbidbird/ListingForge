@@ -16,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 
 from .config import get_settings
 from .database import session_scope
+from .events import record_product_event_once
 from .models import Subscription, User, WebhookEvent
 from .plans import (
     ACTIVE_SUBSCRIPTION_STATUSES,
@@ -281,7 +282,9 @@ def _find_subscription(session, obj: dict[str, Any]) -> Subscription | None:
     return session.scalar(select(Subscription).where(or_(*conditions)))
 
 
-def _apply_checkout(session, obj: dict[str, Any], event_created: int) -> dict[str, Any]:
+def _apply_checkout(
+    session, obj: dict[str, Any], event_created: int, *, livemode: bool = False
+) -> dict[str, Any]:
     metadata = _metadata(obj)
     user_id = _as_uuid(obj.get("client_reference_id") or metadata.get("user_id"))
     price_id = _checkout_price_id(obj)
@@ -298,6 +301,14 @@ def _apply_checkout(session, obj: dict[str, Any], event_created: int) -> dict[st
     user = session.get(User, user_id)
     if user is None:
         raise BillingError("Checkout references an unknown user.")
+    # A trial, active entitlement, redirect, or zero-cost Checkout is not payment.
+    amount = obj.get("amount_total")
+    if payment_status == "paid" and type(amount) is int and amount > 0:
+        record_product_event_once(
+            user_id,
+            "first_paid_conversion" if livemode else "test_paid_conversion",
+            session=session,
+        )
     subscription = session.scalar(
         select(Subscription).where(Subscription.user_id == user_id).with_for_update()
     )
@@ -386,7 +397,9 @@ def process_webhook_event(event: dict[str, Any]) -> dict[str, Any]:
                 return result
             detail: dict[str, Any] = {"updated": False, "reason": "unhandled_event_type"}
             if event_type in CHECKOUT_EVENTS:
-                detail = _apply_checkout(session, obj, event_created)
+                detail = _apply_checkout(
+                    session, obj, event_created, livemode=event.get("livemode") is True
+                )
             elif event_type in SUBSCRIPTION_UPDATE_EVENTS:
                 detail = _apply_subscription(session, obj, event_created, deleted=False)
             elif event_type in SUBSCRIPTION_DELETE_EVENTS:

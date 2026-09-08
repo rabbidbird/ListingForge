@@ -25,6 +25,43 @@ AMAZON_DISALLOWED_TITLE_CHARACTERS = set("!$?_{}^¬¦")
 
 class SEOScorer:
     @staticmethod
+    def validate_tags(tags: list[str], platform: str = "etsy") -> list[str]:
+        """Return current platform-rule violations without changing seller wording."""
+
+        cleaned = [str(tag).strip() for tag in tags if str(tag).strip()]
+        if platform != "etsy":
+            return []
+        feedback: list[str] = []
+        if len(cleaned) > 13:
+            feedback.append("Etsy allows up to 13 tags per listing.")
+        over_limit = [tag for tag in cleaned if len(tag) > 20]
+        if over_limit:
+            feedback.append(f"{len(over_limit)} Etsy tag(s) exceed 20 characters.")
+
+        def has_valid_characters(tag: str) -> bool:
+            for index, char in enumerate(tag):
+                if char.isalpha() or char.isdecimal() or char == " ":
+                    continue
+                if char in "'-":
+                    if (
+                        index == 0
+                        or index == len(tag) - 1
+                        or tag[index - 1].isspace()
+                        or tag[index + 1].isspace()
+                    ):
+                        return False
+                    continue
+                return False
+            return True
+
+        invalid = [tag for tag in cleaned if not has_valid_characters(tag)]
+        if invalid:
+            feedback.append(
+                f"{len(invalid)} Etsy tag(s) contain unsupported characters or start/end with ’ or -."
+            )
+        return feedback
+
+    @staticmethod
     def _status(has_content: bool, feedback: list[str], *, has_risky_claim: bool = False) -> str:
         if has_risky_claim:
             return "Verify"
@@ -180,10 +217,9 @@ class SEOScorer:
         if platform == "etsy":
             if len(tags) == 13 or 1 <= len(tags) < 13:
                 score += 30
-            over_limit = [tag for tag in tags if len(tag) > 20]
-            if over_limit:
-                feedback.append(f"{len(over_limit)} Etsy tag(s) exceed 20 characters.")
-            else:
+            validation_feedback = SEOScorer.validate_tags(tags, platform)
+            feedback.extend(validation_feedback)
+            if not validation_feedback:
                 score += 20
         elif tags:
             score += 25
@@ -197,14 +233,20 @@ class SEOScorer:
             score += 15
         else:
             feedback.append("Duplicate tags detected.")
-        if all(re.fullmatch(r"[\w\s'-]+", tag, flags=re.UNICODE) for tag in tags):
+        if platform != "etsy" or not SEOScorer.validate_tags(tags, platform):
             score += 10
         return {
             "score": max(0, min(100, score)),
             "feedback": feedback,
             "count": len(tags),
+            "validation_errors": SEOScorer.validate_tags(tags, platform),
+            "hard_failure": bool(SEOScorer.validate_tags(tags, platform)),
             "heuristic_only": True,
-            "status": SEOScorer._status(bool(tags), feedback),
+            "status": (
+                "Verify"
+                if SEOScorer.validate_tags(tags, platform)
+                else SEOScorer._status(bool(tags), feedback)
+            ),
         }
 
     @staticmethod
